@@ -1,0 +1,19 @@
+# Build artifacts
+bin/
+obj/
+
+# IDE files
+.idea/
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# OS files
+.DS_Store
+
+# Test and coverage artifacts
+TestResults/
+coverage/
+coverage.*

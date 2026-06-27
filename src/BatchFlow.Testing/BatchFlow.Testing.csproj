@@ -1,0 +1,6 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\BatchFlow\BatchFlow.csproj" />
+    <ProjectReference Include="..\BatchFlow.Abstractions\BatchFlow.Abstractions.csproj" />
+  </ItemGroup>
+</Project>
