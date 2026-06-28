@@ -1,3 +1,5 @@
+using BatchFlow.Core.Execution.Models;
+
 namespace BatchFlow.Core.Execution;
 
 /// <summary>

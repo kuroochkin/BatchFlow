@@ -2,7 +2,7 @@ using BatchFlow.Abstractions.Checkpoints;
 using BatchFlow.Abstractions.Execution;
 using BatchFlow.Abstractions.Observability;
 
-namespace BatchFlow.Core.Execution;
+namespace BatchFlow.Core.Execution.Models;
 
 /// <summary>
 /// Хранит изменяемое состояние одного запуска задачи внутри движка выполнения.

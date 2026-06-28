@@ -6,6 +6,7 @@ using BatchFlow.Abstractions.Processing;
 using BatchFlow.Abstractions.Results;
 using BatchFlow.Abstractions.Sources;
 using BatchFlow.Core.Execution.Exceptions;
+using BatchFlow.Core.Execution.Models;
 using BatchFlow.Core.Jobs;
 using BatchFlow.Core.Processing;
 
@@ -107,16 +108,8 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
                 }
                 catch (BatchJobTerminationException ex)
                 {
-                    await TryPublishFailureAsync(
-                        jobContext,
-                        job.Observers,
-                        batch,
-                        processingContext,
-                        ex.InnerException ?? ex,
-                        ex.Attempt,
-                        ex.ItemIndex,
-                        timeProvider,
-                        cancellationToken);
+                    await TryPublishFailureAsync(jobContext, job.Observers, batch, processingContext,
+                        ex.InnerException ?? ex, ex.Attempt, ex.ItemIndex, timeProvider, cancellationToken);
 
                     runtime.Status = ex.Status;
                     runtime.Reason = ex.Message;
@@ -126,16 +119,8 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
                 }
                 catch (BatchJobProcessingException ex)
                 {
-                    await TryPublishFailureAsync(
-                        jobContext,
-                        job.Observers,
-                        batch,
-                        processingContext,
-                        ex.InnerException ?? ex,
-                        ex.Attempt,
-                        ex.ItemIndex,
-                        timeProvider,
-                        cancellationToken);
+                    await TryPublishFailureAsync(jobContext, job.Observers, batch, processingContext, ex.InnerException ?? ex,
+                        ex.Attempt, ex.ItemIndex, timeProvider, cancellationToken);
 
                     runtime.Status = JobCompletionStatus.Failed;
                     runtime.Reason = ex.Message;
@@ -147,20 +132,13 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
                 {
                     runtime.Status = JobCompletionStatus.Cancelled;
                     runtime.Reason = "Выполнение задачи было отменено.";
+                    
                     return await CompleteAsync(job.Observers, runtime, cancellationToken, suppressObserverFailures: true);
                 }
                 catch (Exception ex)
                 {
-                    await TryPublishFailureAsync(
-                        jobContext,
-                        job.Observers,
-                        batch,
-                        processingContext,
-                        ex,
-                        attempt: 1,
-                        itemIndex: null,
-                        timeProvider,
-                        cancellationToken);
+                    await TryPublishFailureAsync(jobContext, job.Observers, batch, processingContext, ex, attempt: 1,
+                        itemIndex: null, timeProvider, cancellationToken);
 
                     runtime.Status = JobCompletionStatus.Failed;
                     runtime.Reason = "Обработка пакета завершилась ошибкой.";
@@ -376,9 +354,7 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
 
                 ValidateBatchProcessingResult(result, batch.Items.Count, attempt);
 
-                processingResult = new ProcessingExecutionResult(
-                    result,
-                    attempt);
+                processingResult = new ProcessingExecutionResult(result, attempt);
             }
             catch (BatchJobProcessingException)
             {
@@ -386,107 +362,11 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                if (job.FailurePolicy is null)
-                {
-                    throw new BatchJobProcessingException(
-                        "Обработка пакета завершилась необработанным исключением.",
-                        attempt,
-                        itemIndex: null,
-                        ex);
-                }
+                var failureHandlingResult = await HandleBatchProcessingFailureAsync(
+                    job, batch, context, attempt, ex, cancellationToken);
 
-                FailureDecision decision;
-
-                try
-                {
-                    decision = await job.FailurePolicy.DecideAsync(new FailureContext<TItem, TCheckpoint>
-                    {
-                        Job = context.Job,
-                        BatchSequence = context.BatchSequence,
-                        BatchCheckpoint = context.BatchCheckpoint,
-                        BatchItems = batch.Items,
-                        SourceMetadata = batch.Metadata,
-                        Attempt = attempt,
-                        Exception = ex,
-                        Scope = FailureScope.Batch,
-                    }, cancellationToken);
-                }
-                catch (Exception policyException) when (policyException is not OperationCanceledException)
-                {
-                    throw new BatchJobProcessingException(
-                        "Политика обработки ошибок завершилась исключением.",
-                        attempt,
-                        itemIndex: null,
-                        policyException);
-                }
-
-                ValidateFailureDecision(decision, attempt, itemIndex: null);
-
-                switch (decision.Action)
-                {
-                    case FailureAction.Retry:
-                    {
-                        attempt++;
-                        if (decision.Delay is { } delay)
-                        {
-                            await Task.Delay(delay, cancellationToken);
-                        }
-
-                        continue;
-                    }
-                    case FailureAction.Skip:
-                    {
-                        processingResult = new ProcessingExecutionResult(
-                            BatchProcessingResult.Completed(
-                                batch.Items.Count,
-                                succeededCount: 0,
-                                skippedCount: batch.Items.Count,
-                                issues:
-                                [
-                                    new BatchProcessingIssue
-                                    {
-                                        Code = decision.Reason is null ? "batch-skipped" : "batch-skipped-by-policy",
-                                        Message = decision.Reason ?? "Пакет был пропущен политикой обработки ошибок.",
-                                    },
-                                ],
-                                reason: decision.Reason),
-                            attempt);
-                        break;
-                    }
-                    case FailureAction.Stop:
-                    {
-                        throw new BatchJobTerminationException(
-                            JobCompletionStatus.Failed,
-                            decision.Reason ?? "Политика обработки ошибок остановила выполнение задачи.",
-                            attempt,
-                            itemIndex: null,
-                            ex);
-                    }
-                    case FailureAction.Suspend:
-                    {
-                        throw new BatchJobTerminationException(
-                            JobCompletionStatus.Suspended,
-                            decision.Reason ?? "Политика обработки ошибок приостановила выполнение задачи.",
-                            attempt,
-                            itemIndex: null,
-                            ex);
-                    }
-                    case FailureAction.DeadLetter:
-                    {
-                        throw new BatchJobProcessingException(
-                            "Поддержка отправки ошибок в карантин будет добавлена на следующем этапе развития движка.",
-                            attempt,
-                            itemIndex: null,
-                            ex);
-                    }
-                    default:
-                    {
-                        throw new BatchJobProcessingException(
-                            "Политика обработки ошибок вернула неизвестное действие.",
-                            attempt,
-                            itemIndex: null);
-                    }
-                }
+                attempt = failureHandlingResult.NextAttempt;
+                processingResult = failureHandlingResult.ProcessingResult;
             }
         }
 
@@ -556,88 +436,17 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    if (job.FailurePolicy is null)
+                    var failureHandlingResult = await HandleItemProcessingFailureAsync(
+                        job, batch, context, item, index, attempt, ex, cancellationToken);
+
+                    attempt = failureHandlingResult.NextAttempt;
+                    isItemCompleted = failureHandlingResult.IsItemCompleted;
+
+                    if (failureHandlingResult.Issue is not null)
                     {
-                        throw new BatchJobProcessingException("Обработка элемента завершилась необработанным исключением.",
-                            attempt, index, ex);
-                    }
-
-                    FailureDecision decision;
-
-                    try
-                    {
-                        decision = await job.FailurePolicy.DecideAsync(new FailureContext<TItem, TCheckpoint>
-                        {
-                            Job = context.Job,
-                            BatchSequence = context.BatchSequence,
-                            BatchCheckpoint = context.BatchCheckpoint,
-                            BatchItems = batch.Items,
-                            SourceMetadata = batch.Metadata,
-                            Attempt = attempt,
-                            Exception = ex,
-                            Scope = FailureScope.Item,
-                            ItemIndex = index,
-                            FailedItem = item,
-                        }, cancellationToken);
-                    }
-                    catch (Exception policyException) when (policyException is not OperationCanceledException)
-                    {
-                        throw new BatchJobProcessingException("Политика обработки ошибок завершилась исключением.",
-                            attempt, index, policyException);
-                    }
-
-                    ValidateFailureDecision(decision, attempt, index);
-
-                    switch (decision.Action)
-                    {
-                        case FailureAction.Retry:
-                        {
-                            attempt++;
-                            if (decision.Delay is { } delay)
-                            {
-                                await Task.Delay(delay, cancellationToken);
-                            }
-
-                            continue;
-                        }
-                        case FailureAction.Skip:
-                        {
-                            skipped++;
-                            issues.Add(new BatchProcessingIssue
-                            {
-                                ItemIndex = index,
-                                Code = decision.Reason is null ? "item-skipped" : "item-skipped-by-policy",
-                                Message = decision.Reason ?? "Элемент был пропущен политикой обработки ошибок.",
-                            });
-                            maxAttempt = Math.Max(maxAttempt, attempt);
-                            isItemCompleted = true;
-                            break;
-                        }
-                        case FailureAction.Stop:
-                        {
-                            throw new BatchJobTerminationException(
-                                JobCompletionStatus.Failed,
-                                decision.Reason ?? "Политика обработки ошибок остановила выполнение задачи.",
-                                attempt, index, ex);
-                        }
-                        case FailureAction.Suspend:
-                        {
-                            throw new BatchJobTerminationException(
-                                JobCompletionStatus.Suspended,
-                                decision.Reason ?? "Политика обработки ошибок приостановила выполнение задачи.",
-                                attempt, index, ex);
-                        }
-                        case FailureAction.DeadLetter:
-                        {
-                            throw new BatchJobProcessingException(
-                                "Поддержка отправки ошибок в карантин будет добавлена на следующем этапе развития движка.",
-                                attempt, index, ex);
-                        }
-                        default:
-                        {
-                            throw new BatchJobProcessingException("Политика обработки ошибок вернула неизвестное действие.",
-                                attempt, index);
-                        }
+                        skipped++;
+                        issues.Add(failureHandlingResult.Issue);
+                        maxAttempt = Math.Max(maxAttempt, attempt);
                     }
                 }
             }
@@ -701,6 +510,210 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
             }
         }
     }
+
+    private static async ValueTask<BatchProcessingFailureHandlingResult> HandleBatchProcessingFailureAsync<TItem, TCheckpoint>(
+        BatchJobDefinition<TItem, TCheckpoint> job,
+        SourceBatch<TItem, TCheckpoint> batch,
+        BatchProcessingContext<TCheckpoint> context,
+        int attempt,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        if (job.FailurePolicy is null)
+        {
+            throw new BatchJobProcessingException("Обработка пакета завершилась необработанным исключением.",
+                attempt, itemIndex: null, exception);
+        }
+
+        FailureDecision decision;
+
+        try
+        {
+            decision = await job.FailurePolicy.DecideAsync(new FailureContext<TItem, TCheckpoint>
+            {
+                Job = context.Job,
+                BatchSequence = context.BatchSequence,
+                BatchCheckpoint = context.BatchCheckpoint,
+                BatchItems = batch.Items,
+                SourceMetadata = batch.Metadata,
+                Attempt = attempt,
+                Exception = exception,
+                Scope = FailureScope.Batch,
+            }, cancellationToken);
+        }
+        catch (Exception policyException) when (policyException is not OperationCanceledException)
+        {
+            throw new BatchJobProcessingException("Политика обработки ошибок завершилась исключением.",
+                attempt, itemIndex: null, policyException);
+        }
+
+        ValidateFailureDecision(decision, attempt, itemIndex: null);
+
+        switch (decision.Action)
+        {
+            case FailureAction.Retry:
+            {
+                if (decision.Delay is { } delay)
+                {
+                    await Task.Delay(delay, cancellationToken);
+                }
+
+                return new BatchProcessingFailureHandlingResult(attempt + 1, ProcessingResult: null);
+            }
+            case FailureAction.Skip:
+            {
+                return new BatchProcessingFailureHandlingResult(attempt,
+                    new ProcessingExecutionResult(CreateSkippedBatchProcessingResult(batch.Items.Count, decision.Reason), attempt));
+            }
+            case FailureAction.Stop:
+            {
+                throw new BatchJobTerminationException(
+                    JobCompletionStatus.Failed,
+                    decision.Reason ?? "Политика обработки ошибок остановила выполнение задачи.",
+                    attempt,
+                    itemIndex: null,
+                    exception);
+            }
+            case FailureAction.Suspend:
+            {
+                throw new BatchJobTerminationException(
+                    JobCompletionStatus.Suspended,
+                    decision.Reason ?? "Политика обработки ошибок приостановила выполнение задачи.",
+                    attempt,
+                    itemIndex: null,
+                    exception);
+            }
+            case FailureAction.DeadLetter:
+            {
+                throw new BatchJobProcessingException(
+                    "Поддержка отправки ошибок в карантин будет добавлена на следующем этапе развития движка.",
+                    attempt,
+                    itemIndex: null,
+                    exception);
+            }
+            default:
+            {
+                throw new BatchJobProcessingException(
+                    "Политика обработки ошибок вернула неизвестное действие.",
+                    attempt,
+                    itemIndex: null);
+            }
+        }
+    }
+
+    private static BatchProcessingResult CreateSkippedBatchProcessingResult(int itemCount, string? reason) =>
+        BatchProcessingResult.Completed(
+            itemCount,
+            succeededCount: 0,
+            skippedCount: itemCount,
+            issues:
+            [
+                new BatchProcessingIssue
+                {
+                    Code = reason is null ? "batch-skipped" : "batch-skipped-by-policy",
+                    Message = reason ?? "Пакет был пропущен политикой обработки ошибок.",
+                },
+            ],
+            reason: reason);
+
+    private static async ValueTask<ItemProcessingFailureHandlingResult> HandleItemProcessingFailureAsync<TItem, TCheckpoint>(
+        BatchJobDefinition<TItem, TCheckpoint> job,
+        SourceBatch<TItem, TCheckpoint> batch,
+        BatchProcessingContext<TCheckpoint> context,
+        TItem item,
+        int itemIndex,
+        int attempt,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        if (job.FailurePolicy is null)
+        {
+            throw new BatchJobProcessingException("Обработка элемента завершилась необработанным исключением.",
+                attempt, itemIndex, exception);
+        }
+
+        FailureDecision decision;
+
+        try
+        {
+            decision = await job.FailurePolicy.DecideAsync(new FailureContext<TItem, TCheckpoint>
+            {
+                Job = context.Job,
+                BatchSequence = context.BatchSequence,
+                BatchCheckpoint = context.BatchCheckpoint,
+                BatchItems = batch.Items,
+                SourceMetadata = batch.Metadata,
+                Attempt = attempt,
+                Exception = exception,
+                Scope = FailureScope.Item,
+                ItemIndex = itemIndex,
+                FailedItem = item,
+            }, cancellationToken);
+        }
+        catch (Exception policyException) when (policyException is not OperationCanceledException)
+        {
+            throw new BatchJobProcessingException("Политика обработки ошибок завершилась исключением.",
+                attempt, itemIndex, policyException);
+        }
+
+        ValidateFailureDecision(decision, attempt, itemIndex);
+
+        switch (decision.Action)
+        {
+            case FailureAction.Retry:
+            {
+                if (decision.Delay is { } delay)
+                {
+                    await Task.Delay(delay, cancellationToken);
+                }
+
+                return new ItemProcessingFailureHandlingResult(
+                    NextAttempt: attempt + 1,
+                    IsItemCompleted: false,
+                    Issue: null);
+            }
+            case FailureAction.Skip:
+            {
+                return new ItemProcessingFailureHandlingResult(
+                    NextAttempt: attempt,
+                    IsItemCompleted: true,
+                    Issue: CreateSkippedItemProcessingIssue(itemIndex, decision.Reason));
+            }
+            case FailureAction.Stop:
+            {
+                throw new BatchJobTerminationException(
+                    JobCompletionStatus.Failed,
+                    decision.Reason ?? "Политика обработки ошибок остановила выполнение задачи.",
+                    attempt, itemIndex, exception);
+            }
+            case FailureAction.Suspend:
+            {
+                throw new BatchJobTerminationException(
+                    JobCompletionStatus.Suspended,
+                    decision.Reason ?? "Политика обработки ошибок приостановила выполнение задачи.",
+                    attempt, itemIndex, exception);
+            }
+            case FailureAction.DeadLetter:
+            {
+                throw new BatchJobProcessingException(
+                    "Поддержка отправки ошибок в карантин будет добавлена на следующем этапе развития движка.",
+                    attempt, itemIndex, exception);
+            }
+            default:
+            {
+                throw new BatchJobProcessingException("Политика обработки ошибок вернула неизвестное действие.",
+                    attempt, itemIndex);
+            }
+        }
+    }
+
+    private static BatchProcessingIssue CreateSkippedItemProcessingIssue(int itemIndex, string? reason) =>
+        new()
+        {
+            ItemIndex = itemIndex,
+            Code = reason is null ? "item-skipped" : "item-skipped-by-policy",
+            Message = reason ?? "Элемент был пропущен политикой обработки ошибок.",
+        };
 
     private static void ValidateItemProcessingResult(ProcessingResult? result,
         int attempt, int itemIndex)
@@ -802,16 +815,8 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
     {
         try
         {
-            await PublishFailureAsync(
-                jobContext,
-                observers,
-                batch,
-                context,
-                exception,
-                attempt,
-                itemIndex,
-                timeProvider,
-                cancellationToken);
+            await PublishFailureAsync(jobContext, observers, batch, context, exception, attempt, itemIndex,
+                timeProvider, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -924,4 +929,8 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
             }
         }
     }
+
+    private sealed record BatchProcessingFailureHandlingResult(int NextAttempt, ProcessingExecutionResult? ProcessingResult);
+
+    private sealed record ItemProcessingFailureHandlingResult(int NextAttempt, bool IsItemCompleted, BatchProcessingIssue? Issue);
 }

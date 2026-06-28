@@ -5,6 +5,7 @@ using BatchFlow.Abstractions.Results;
 using BatchFlow.Abstractions.Sources;
 using BatchFlow.Core.Execution;
 using BatchFlow.Core.Execution.Exceptions;
+using BatchFlow.Core.Execution.Models;
 using BatchFlow.Core.Jobs;
 using BatchFlow.Core.Processing;
 using BatchFlow.Testing.Checkpoints;

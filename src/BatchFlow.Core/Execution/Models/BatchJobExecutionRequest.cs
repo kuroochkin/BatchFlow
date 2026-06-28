@@ -1,6 +1,6 @@
 using BatchFlow.Core.Jobs;
 
-namespace BatchFlow.Core.Execution;
+namespace BatchFlow.Core.Execution.Models;
 
 /// <summary>
 /// Описывает запрос на выполнение пакетной задачи.
