@@ -9,6 +9,7 @@ public sealed record SourceBatch<TItem, TCheckpoint>
 {
     /// <summary>
     /// Элементы, входящие в этот пакет.
+    /// Коллекция должна содержать хотя бы один элемент.
     /// </summary>
     public required IReadOnlyList<TItem> Items { get; init; }
 

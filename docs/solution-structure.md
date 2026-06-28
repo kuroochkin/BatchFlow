@@ -11,27 +11,31 @@
 
 - `BatchFlow.Abstractions`
   - базовые контракты и модели;
-  - не зависит от core и инфраструктурных пакетов.
-- `BatchFlow`
-  - основной runtime, orchestration и builder API;
+  - не зависит от runtime, фасада и инфраструктурных пакетов.
+- `BatchFlow.Core`
+  - execution engine, orchestration flow и runtime-модели выполнения;
   - зависит только от `BatchFlow.Abstractions`.
+- `BatchFlow`
+  - публичный фасад библиотеки, fluent/builder API и удобные точки входа для потребителя;
+  - зависит от `BatchFlow.Core`.
 - `BatchFlow.Extensions.DependencyInjection`
   - интеграция с `IServiceCollection`;
-  - зависит от `BatchFlow`.
+  - зависит от `BatchFlow.Core` и не затягивает зависимость обратно в runtime.
 - `BatchFlow.Extensions.Logging`
   - адаптация runtime-событий в `ILogger`;
-  - зависит от `BatchFlow`.
+  - зависит от `BatchFlow.Core`.
 - `BatchFlow.Extensions.Diagnostics`
   - метрики и tracing поверх runtime;
-  - зависит от `BatchFlow`.
+  - зависит от `BatchFlow.Core`.
 - `BatchFlow.Testing`
-  - тестовые реализации и вспомогательные утилиты;
-  - зависит от `BatchFlow` и `BatchFlow.Abstractions`.
+  - тестовые реализации, fake-адаптеры и вспомогательные утилиты для сценариев библиотеки;
+  - зависит от `BatchFlow.Core` и `BatchFlow.Abstractions`.
 
 ## Правила зависимостей
 
 1. `BatchFlow.Abstractions` не должен зависеть от инфраструктурных библиотек и конкретных технологий хранения или транспорта.
-2. `BatchFlow` не должен зависеть от `Extensions.*`, adapter-пакетов, `ILogger`, DI или diagnostics.
-3. Все интеграционные пакеты строятся поверх `BatchFlow`, а не наоборот.
-4. Адаптеры источников данных и checkpoint store должны жить в отдельных пакетах и ссылаться только на необходимые уровни core.
-5. Тестовые проекты в `tests` должны ссылаться только на те проекты, которые они реально проверяют.
+2. `BatchFlow.Core` не должен зависеть от `Extensions.*`, adapter-пакетов, `ILogger`, DI, diagnostics и конкретных технологий.
+3. `BatchFlow` остается тонким публичным фасадом поверх `BatchFlow.Core` и не должен превращаться в место для инфраструктурной логики.
+4. Все интеграционные пакеты строятся поверх `BatchFlow.Core`, а не наоборот.
+5. Адаптеры источников данных и checkpoint store должны жить в отдельных пакетах и ссылаться только на необходимые уровни ядра.
+6. Тестовые проекты в `tests` должны ссылаться только на те проекты, которые они реально проверяют.

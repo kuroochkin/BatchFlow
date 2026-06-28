@@ -38,11 +38,10 @@
 
 - `IBatchSource<TItem, TCheckpoint>`
 - `ICheckpointStore<TCheckpoint>`
-- `IItemProcessor<TItem>` или item delegate
-- `IBatchProcessor<TItem>` или batch delegate
-- `IFailurePolicy<TItem>`
-- `IProgressObserver`
-- `IErrorSink`
+- `IItemProcessor<TItem, TCheckpoint>` или item delegate
+- `IBatchProcessor<TItem, TCheckpoint>` или batch delegate
+- `IFailurePolicy<TItem, TCheckpoint>`
+- `IExecutionObserver<TCheckpoint>`
 
 ### 2.2 У библиотеки должен быть один runtime-контур
 
@@ -143,14 +142,22 @@ public interface ICheckpointStore<TCheckpoint>
         string jobName,
         CancellationToken cancellationToken);
 
-    ValueTask SaveAsync(
+    ValueTask<StoredCheckpoint<TCheckpoint>> SaveAsync(
         string jobName,
         StoredCheckpoint<TCheckpoint> checkpoint,
+        string? expectedConcurrencyToken,
         CancellationToken cancellationToken);
 }
 ```
 
-Позже можно добавить нетипизированный envelope-слой для более широкой экосистемы.
+`StoredCheckpoint<TCheckpoint>` должен хранить не только значение checkpoint, но и служебные данные runtime:
+
+- `SequenceNumber`
+- `SavedAt`
+- `ConcurrencyToken`
+- `Metadata`
+
+Это позволяет сразу заложить optimistic concurrency и безопасное продолжение обработки после рестарта.
 
 ### 5.3 Обработчики
 
@@ -170,7 +177,7 @@ Retry и terminal policy лучше разделить:
 
 ### 5.5 Наблюдаемость
 
-Core лучше проектировать не вокруг `ILogger`, а вокруг событий/observer-интерфейса:
+Core лучше проектировать не вокруг `ILogger`, а вокруг событий и `IExecutionObserver<TCheckpoint>`:
 
 - `JobStarted`
 - `BatchStarted`
@@ -204,8 +211,10 @@ Core лучше проектировать не вокруг `ILogger`, а во�
 
 - `src/BatchFlow.Abstractions`
   - интерфейсы и базовые модели;
+- `src/BatchFlow.Core`
+  - execution engine, orchestration и runtime-модели;
 - `src/BatchFlow`
-  - core runtime, builder, orchestration;
+  - публичный fluent API и фасад поверх `BatchFlow.Core`;
 - `src/BatchFlow.Extensions.DependencyInjection`
   - регистрация через `IServiceCollection`;
 - `src/BatchFlow.Extensions.Logging`

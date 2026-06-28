@@ -5,9 +5,28 @@ namespace BatchFlow.Abstractions.Failures;
 /// </summary>
 public enum FailureAction
 {
+    /// <summary>
+    /// Повторить обработку после сбоя.
+    /// </summary>
     Retry = 0,
+
+    /// <summary>
+    /// Зафиксировать окончательный пропуск ошибочного результата и продолжить выполнение.
+    /// </summary>
     Skip = 1,
+
+    /// <summary>
+    /// Немедленно остановить выполнение задачи с ошибкой.
+    /// </summary>
     Stop = 2,
+
+    /// <summary>
+    /// Завершить выполнение задачи в приостановленном состоянии.
+    /// </summary>
     Suspend = 3,
+
+    /// <summary>
+    /// Передать ошибочный результат в карантин или отдельный поток обработки.
+    /// </summary>
     DeadLetter = 4,
 }

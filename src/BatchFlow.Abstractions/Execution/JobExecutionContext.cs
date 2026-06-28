@@ -11,7 +11,8 @@ public sealed record JobExecutionContext
     public required string JobName { get; init; }
 
     /// <summary>
-    /// Идентификатор, используемый для сохранения контрольных точек задачи.
+    /// Эффективный идентификатор, используемый движком для загрузки и сохранения контрольных точек задачи.
+    /// Если задача выполняется без checkpoint store, значение может отсутствовать.
     /// </summary>
     public string? CheckpointId { get; init; }
 

@@ -1,5 +1,5 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <ProjectReference Include="..\BatchFlow\BatchFlow.csproj" />
+    <ProjectReference Include="..\BatchFlow.Core\BatchFlow.Core.csproj" />
   </ItemGroup>
 </Project>

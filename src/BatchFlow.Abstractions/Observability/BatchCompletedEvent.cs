@@ -22,7 +22,8 @@ public sealed record BatchCompletedEvent<TCheckpoint> : BatchFlowEvent<TCheckpoi
     public required int ItemCount { get; init; }
 
     /// <summary>
-    /// Возвращает номер попытки, на которой пакет завершился.
+    /// Возвращает номер попытки, потребовавшейся для окончательного завершения пакета.
+    /// Для поэлементной обработки это максимальный номер попытки, который понадобился хотя бы одному элементу пакета.
     /// </summary>
     public required int Attempt { get; init; }
 

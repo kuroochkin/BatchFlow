@@ -8,6 +8,7 @@ public interface ICheckpointStore<TCheckpoint>
 {
     /// <summary>
     /// Загружает последнюю сохраненную контрольную точку по указанному идентификатору, если она существует.
+    /// Если точка найдена, реализация должна вернуть полностью заполненный объект с метаданными сохранения.
     /// </summary>
     ValueTask<StoredCheckpoint<TCheckpoint>?> LoadAsync(string checkpointId, CancellationToken cancellationToken);
 
