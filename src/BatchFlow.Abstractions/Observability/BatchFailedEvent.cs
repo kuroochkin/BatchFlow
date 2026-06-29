@@ -22,7 +22,8 @@ public sealed record BatchFailedEvent<TCheckpoint> : BatchFlowEvent<TCheckpoint>
     public required int ItemCount { get; init; }
 
     /// <summary>
-    /// Возвращает номер попытки, на которой произошла ошибка.
+    /// Возвращает номер попытки, на которой был зафиксирован итоговый сбой.
+    /// Для поэлементной обработки значение относится к конкретному элементу, указанному в <see cref="ItemIndex"/>.
     /// </summary>
     public required int Attempt { get; init; }
 

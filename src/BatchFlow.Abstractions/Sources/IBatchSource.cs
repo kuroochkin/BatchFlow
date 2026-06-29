@@ -17,6 +17,7 @@ public interface IBatchSource<TItem, TCheckpoint>
 
     /// <summary>
     /// Читает пакеты из источника, начиная с позиции, заданной в контексте возобновления.
+    /// Источник не должен возвращать пустые пакеты: отсутствие данных выражается завершением последовательности.
     /// </summary>
     IAsyncEnumerable<SourceBatch<TItem, TCheckpoint>> ReadAsync(
         BatchSourceContext<TCheckpoint> context,
