@@ -1,0 +1,203 @@
+using BatchFlow;
+using BatchFlow.Abstractions.Checkpoints;
+using BatchFlow.Abstractions.Execution;
+using BatchFlow.Abstractions.Results;
+using BatchFlow.Abstractions.Sources;
+
+var cancellationToken = CancellationToken.None;
+
+var orders = new List<Order>
+{
+    new(1, "A-1001", 12_500m),
+    new(2, "A-1002", 9_900m),
+    new(3, "A-1003", 18_750m),
+    new(4, "A-1004", 4_200m),
+    new(5, "A-1005", 27_300m),
+    new(6, "A-1006", 7_800m),
+    new(7, "A-1007", 12_500m),
+    new(8, "A-1008", 9_900m),
+    new(9, "A-1009", 18_750m),
+    new(10, "A-10010", 4_200m),
+    new(11, "A-10011", 27_300m),
+    new(12, "A-10012", 7_800m),
+};
+
+var source = new OrdersBatchSource(orders);
+var checkpointStore = new InMemoryCheckpointStore<int>();
+
+// Имитируем, что предыдущий запуск уже подтвердил обработку первых двух заказов.
+checkpointStore.Seed(
+    checkpointId: "orders-demo-v1",
+    checkpoint: new StoredCheckpoint<int>
+    {
+        Value = 2,
+        SequenceNumber = 1,
+        ConcurrencyToken = "seed-token",
+        SavedAt = DateTimeOffset.UtcNow.AddMinutes(-10),
+    });
+
+var summary = await BatchJob
+    .Named("orders-demo")
+    .From(source)
+    .WithBatchSize(7)
+    .WithDegreeOfParallelism(1)
+    .WithCheckpoint("orders-demo-v1", checkpointStore)
+    .ProcessEach(async (order, context, token) =>
+    {
+        await Task.Delay(50, token);
+
+        Console.WriteLine(
+            $"Обработка заказа {order.Number} | Сумма: {order.Amount:N0} | " +
+            $"Batch #{context.BatchSequence} | Item #{context.ItemIndex}");
+
+        return ProcessingResult.Success($"Заказ {order.Number} успешно выгружен.");
+    })
+    .RunAsync(
+        new BatchJobRunOptions
+        {
+            RunId = $"orders-demo-{DateTime.UtcNow:yyyyMMddHHmmss}",
+        },
+        cancellationToken);
+
+Console.WriteLine();
+Console.WriteLine("Итог выполнения:");
+Console.WriteLine($"Статус: {summary.Status}");
+Console.WriteLine($"Обработано пакетов: {summary.ProcessedBatchCount}");
+Console.WriteLine($"Успешно обработано элементов: {summary.SucceededItemCount}");
+Console.WriteLine($"Пропущено элементов: {summary.SkippedItemCount}");
+Console.WriteLine($"Точка возобновления на старте: {summary.ResumeFrom?.Value.ToString() ?? "<нет>"}");
+Console.WriteLine($"Последняя сохраненная контрольная точка: {summary.LastPersistedCheckpoint?.Value.ToString() ?? "<нет>"}");
+
+Console.WriteLine();
+Console.WriteLine("История сохранений checkpoint:");
+
+foreach (var saveRequest in checkpointStore.SaveRequests)
+{
+    Console.WriteLine(
+        $"checkpointId={saveRequest.CheckpointId}, " +
+        $"value={saveRequest.Checkpoint.Value}, " +
+        $"expectedToken={saveRequest.ExpectedConcurrencyToken ?? "<null>"}");
+}
+
+internal sealed record Order(int Id, string Number, decimal Amount);
+
+internal sealed class OrdersBatchSource(IReadOnlyList<Order> orders) : IBatchSource<Order, int>
+{
+    private readonly IReadOnlyList<Order> _orders = orders ?? throw new ArgumentNullException(nameof(orders));
+
+    public async IAsyncEnumerable<SourceBatch<Order, int>> ReadAsync(
+        BatchSourceContext<int> context,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        var lastProcessedOrderId = context.ResumeFrom?.Value ?? 0;
+
+        Console.WriteLine(
+            $"Источник стартует с позиции > {lastProcessedOrderId}, requested batch size = {context.RequestedBatchSize}");
+
+        var pendingOrders = _orders
+            .Where(order => order.Id > lastProcessedOrderId)
+            .ToArray();
+
+        for (var index = 0; index < pendingOrders.Length; index += context.RequestedBatchSize)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var batchItems = pendingOrders
+                .Skip(index)
+                .Take(context.RequestedBatchSize)
+                .ToArray();
+
+            if (batchItems.Length == 0)
+            {
+                yield break;
+            }
+
+            var lastOrderInBatch = batchItems[^1];
+
+            await Task.Delay(25, cancellationToken);
+
+            yield return new SourceBatch<Order, int>
+            {
+                Items = batchItems,
+                Checkpoint = lastOrderInBatch.Id,
+                Metadata = new Dictionary<string, string>
+                {
+                    ["fromOrderIdExclusive"] = lastProcessedOrderId.ToString(),
+                    ["lastOrderIdInBatch"] = lastOrderInBatch.Id.ToString(),
+                },
+            };
+        }
+    }
+}
+
+internal sealed class InMemoryCheckpointStore<TCheckpoint> : ICheckpointStore<TCheckpoint>
+{
+    private readonly Dictionary<string, StoredCheckpoint<TCheckpoint>> _storage = new(StringComparer.Ordinal);
+
+    public List<CheckpointSaveRequest<TCheckpoint>> SaveRequests { get; } = [];
+
+    public void Seed(string checkpointId, StoredCheckpoint<TCheckpoint> checkpoint)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(checkpointId);
+        ArgumentNullException.ThrowIfNull(checkpoint);
+
+        _storage[checkpointId] = checkpoint;
+    }
+
+    public ValueTask<StoredCheckpoint<TCheckpoint>?> LoadAsync(string checkpointId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(checkpointId);
+
+        _storage.TryGetValue(checkpointId, out var checkpoint);
+        return ValueTask.FromResult<StoredCheckpoint<TCheckpoint>?>(checkpoint);
+    }
+
+    public ValueTask<StoredCheckpoint<TCheckpoint>> SaveAsync(
+        string checkpointId,
+        StoredCheckpoint<TCheckpoint> checkpoint,
+        string? expectedConcurrencyToken,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(checkpointId);
+        ArgumentNullException.ThrowIfNull(checkpoint);
+
+        SaveRequests.Add(
+            new CheckpointSaveRequest<TCheckpoint>
+            {
+                CheckpointId = checkpointId,
+                Checkpoint = checkpoint,
+                ExpectedConcurrencyToken = expectedConcurrencyToken,
+            });
+
+        if (_storage.TryGetValue(checkpointId, out var existing) &&
+            !string.Equals(existing.ConcurrencyToken, expectedConcurrencyToken, StringComparison.Ordinal))
+        {
+            throw new CheckpointConflictException(checkpointId);
+        }
+
+        if (!_storage.ContainsKey(checkpointId) && expectedConcurrencyToken is not null)
+        {
+            throw new CheckpointConflictException(checkpointId);
+        }
+
+        var savedCheckpoint = checkpoint with
+        {
+            ConcurrencyToken = Guid.NewGuid().ToString("N"),
+            SavedAt = DateTimeOffset.UtcNow,
+        };
+
+        _storage[checkpointId] = savedCheckpoint;
+        return ValueTask.FromResult(savedCheckpoint);
+    }
+}
+
+internal sealed record CheckpointSaveRequest<TCheckpoint>
+{
+    public required string CheckpointId { get; init; }
+
+    public required StoredCheckpoint<TCheckpoint> Checkpoint { get; init; }
+
+    public string? ExpectedConcurrencyToken { get; init; }
+}
