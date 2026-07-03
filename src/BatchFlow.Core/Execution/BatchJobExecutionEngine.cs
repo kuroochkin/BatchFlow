@@ -151,6 +151,16 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
                 runtime.SucceededItemCount += processingResult.Result.SucceededCount;
                 runtime.SkippedItemCount += processingResult.Result.SkippedCount;
 
+                if (checkpointId is not null)
+                {
+                    runtime.LastPersistedCheckpoint = await PersistCheckpointAsync(
+                        job,
+                        checkpointId,
+                        batch,
+                        runtime,
+                        cancellationToken);
+                }
+
                 await PublishAsync(job.Observers, new BatchCompletedEvent<TCheckpoint>
                 {
                     Job = jobContext,
@@ -164,21 +174,20 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
                     SourceMetadata = batch.Metadata,
                 }, cancellationToken);
 
-                if (checkpointId is null) 
+                if (checkpointId is null)
+                {
                     continue;
-                
-                runtime.LastPersistedCheckpoint = await PersistCheckpointAsync(
-                    job,
-                    checkpointId,
-                    batch,
-                    runtime,
-                    cancellationToken);
+                }
+
+                var persistedCheckpoint = runtime.LastPersistedCheckpoint
+                    ?? throw new InvalidOperationException(
+                        "Движок не сохранил контрольную точку после подтвержденной обработки пакета.");
 
                 await PublishAsync(job.Observers, new CheckpointSavedEvent<TCheckpoint>
                 {
                     Job = jobContext,
                     OccurredAt = timeProvider.GetUtcNow(),
-                    Checkpoint = runtime.LastPersistedCheckpoint,
+                    Checkpoint = persistedCheckpoint,
                 }, cancellationToken);
             }
 
@@ -233,6 +242,12 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
         if (job.DegreeOfParallelism <= 0)
         {
             throw new BatchJobConfigurationException("Степень параллелизма должна быть больше нуля.");
+        }
+
+        if (job.CheckpointStore is null && !string.IsNullOrWhiteSpace(job.CheckpointId))
+        {
+            throw new BatchJobConfigurationException(
+                "Нельзя указывать checkpoint id без подключения хранилища контрольных точек.");
         }
 
         if (!job.Source.SupportsResume && job.CheckpointStore is not null)
