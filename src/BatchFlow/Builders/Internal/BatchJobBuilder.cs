@@ -1,5 +1,6 @@
 using BatchFlow.Abstractions.Checkpoints;
 using BatchFlow.Abstractions.Execution;
+using BatchFlow.Abstractions.Failures;
 using BatchFlow.Abstractions.Processing;
 using BatchFlow.Abstractions.Results;
 using BatchFlow.Core.Jobs;
@@ -34,6 +35,7 @@ internal sealed class BatchJobBuilder<TItem, TCheckpoint> :
             BatchSize = _state.BatchSize,
             DegreeOfParallelism = _state.DegreeOfParallelism,
             CheckpointStore = _state.CheckpointStore,
+            FailurePolicy = _state.FailurePolicy,
         };
     }
 
@@ -60,6 +62,22 @@ internal sealed class BatchJobBuilder<TItem, TCheckpoint> :
 
     IResumableBatchJobReadyBuilder<TItem, TCheckpoint> IResumableBatchJobReadyBuilder<TItem, TCheckpoint>.WithDegreeOfParallelism(int degreeOfParallelism) =>
         WithDegreeOfParallelismCore(degreeOfParallelism);
+
+    IBatchJobBuilder<TItem, TCheckpoint> IBatchJobBuilder<TItem, TCheckpoint>.WithFailurePolicy(
+        IFailurePolicy<TItem, TCheckpoint> failurePolicy) =>
+        WithFailurePolicyCore(failurePolicy);
+
+    IResumableBatchJobBuilder<TItem, TCheckpoint> IResumableBatchJobBuilder<TItem, TCheckpoint>.WithFailurePolicy(
+        IFailurePolicy<TItem, TCheckpoint> failurePolicy) =>
+        WithFailurePolicyCore(failurePolicy);
+
+    IBatchJobReadyBuilder<TItem, TCheckpoint> IBatchJobReadyBuilder<TItem, TCheckpoint>.WithFailurePolicy(
+        IFailurePolicy<TItem, TCheckpoint> failurePolicy) =>
+        WithFailurePolicyCore(failurePolicy);
+
+    IResumableBatchJobReadyBuilder<TItem, TCheckpoint> IResumableBatchJobReadyBuilder<TItem, TCheckpoint>.WithFailurePolicy(
+        IFailurePolicy<TItem, TCheckpoint> failurePolicy) =>
+        WithFailurePolicyCore(failurePolicy);
 
     IResumableBatchJobBuilder<TItem, TCheckpoint> IResumableBatchJobBuilder<TItem, TCheckpoint>.WithCheckpoint(ICheckpointStore<TCheckpoint> checkpointStore) =>
         WithCheckpointCore(checkpointStore, checkpointId: null);
@@ -182,6 +200,13 @@ internal sealed class BatchJobBuilder<TItem, TCheckpoint> :
     {
         BatchJobBuilderValidation.ValidateDegreeOfParallelism(degreeOfParallelism);
         return WithState(_state with { DegreeOfParallelism = degreeOfParallelism });
+    }
+
+    private BatchJobBuilder<TItem, TCheckpoint> WithFailurePolicyCore(
+        IFailurePolicy<TItem, TCheckpoint> failurePolicy)
+    {
+        ArgumentNullException.ThrowIfNull(failurePolicy);
+        return WithState(_state with { FailurePolicy = failurePolicy });
     }
 
     private BatchJobBuilder<TItem, TCheckpoint> WithCheckpointCore(

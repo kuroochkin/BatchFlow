@@ -1,4 +1,5 @@
 using BatchFlow.Abstractions.Execution;
+using BatchFlow.Abstractions.Failures;
 using BatchFlow.Abstractions.Processing;
 using BatchFlow.Abstractions.Results;
 using BatchFlow.Core.Jobs;
@@ -25,6 +26,13 @@ public interface IBatchJobReadyBuilder<TItem, TCheckpoint>
     /// <param name="degreeOfParallelism">Положительное количество конкурентных обработчиков.</param>
     /// <returns>Текущую стадию builder для продолжения настройки.</returns>
     IBatchJobReadyBuilder<TItem, TCheckpoint> WithDegreeOfParallelism(int degreeOfParallelism);
+
+    /// <summary>
+    /// Подключает стратегию обработки сбоев и заменяет ранее настроенную политику, если она уже была задана.
+    /// </summary>
+    /// <param name="failurePolicy">Политика обработки ошибок.</param>
+    /// <returns>Текущую стадию builder для продолжения настройки.</returns>
+    IBatchJobReadyBuilder<TItem, TCheckpoint> WithFailurePolicy(IFailurePolicy<TItem, TCheckpoint> failurePolicy);
 
     /// <summary>
     /// Выбирает поэлементный обработчик и заменяет ранее настроенный способ обработки, если он уже был задан.
