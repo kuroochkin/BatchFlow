@@ -2,5 +2,6 @@
   <ItemGroup>
     <ProjectReference Include="..\BatchFlow.Core\BatchFlow.Core.csproj" />
     <ProjectReference Include="..\BatchFlow.Abstractions\BatchFlow.Abstractions.csproj" />
+    <ProjectReference Include="..\BatchFlow\BatchFlow.csproj" />
   </ItemGroup>
 </Project>
