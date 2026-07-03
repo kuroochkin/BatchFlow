@@ -1,5 +1,6 @@
 using BatchFlow.Abstractions.Observability;
 using BatchFlow.Abstractions.Execution;
+using BatchFlow.Abstractions.Failures;
 using BatchFlow.Abstractions.Results;
 using BatchFlow.Abstractions.Sources;
 using BatchFlow.Core.Execution;
@@ -138,6 +139,28 @@ public sealed class BatchJobBuilderTests
     }
 
     [Fact]
+    public void WithRetry_should_throw_when_max_retry_attempts_is_negative()
+    {
+        var source = new DelegateBatchSource<int, long>((_, _) => EmptyBatches<int, long>());
+        var builder = BatchJob.Named("job").From(source);
+
+        Action action = () => builder.WithRetry(-1);
+
+        action.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void WithRetry_should_throw_when_delay_is_negative()
+    {
+        var source = new DelegateBatchSource<int, long>((_, _) => EmptyBatches<int, long>());
+        var builder = BatchJob.Named("job").From(source);
+
+        Action action = () => builder.WithRetry(3, TimeSpan.FromMilliseconds(-1));
+
+        action.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
     public void WithCheckpoint_should_throw_when_source_reports_no_resume_support()
     {
         var source = new DelegateBatchSource<int, long>((_, _) => EmptyBatches<int, long>(), supportsResume: false);
@@ -149,6 +172,32 @@ public sealed class BatchJobBuilderTests
         action.Should()
             .Throw<InvalidOperationException>()
             .WithMessage("*не поддерживает возобновление чтения*");
+    }
+
+    [Fact]
+    public async Task Build_should_attach_fixed_retry_policy_when_with_retry_is_used()
+    {
+        var source = new DelegateBatchSource<int, long>((_, _) => EmptyBatches<int, long>());
+
+        var job = BatchJob
+            .Named("retry-enabled-job")
+            .From(source)
+            .WithRetry(new BatchRetryOptions
+            {
+                MaxRetryAttempts = 2,
+                Delay = TimeSpan.FromMilliseconds(25),
+            })
+            .ProcessEach((_, _, _) => new ValueTask<ProcessingResult>(ProcessingResult.Success()))
+            .Build();
+
+        job.FailurePolicy.Should().BeOfType<FixedRetryFailurePolicy<int, long>>();
+
+        var decision = await job.FailurePolicy!.DecideAsync(
+            CreateFailureContext<long>(attempt: 1, new InvalidOperationException("temporary failure")),
+            CancellationToken.None);
+
+        decision.Action.Should().Be(FailureAction.Retry);
+        decision.Delay.Should().Be(TimeSpan.FromMilliseconds(25));
     }
 
     [Fact]
@@ -230,6 +279,35 @@ public sealed class BatchJobBuilderTests
         capturedContexts[2].ItemIndex.Should().Be(0);
         capturedContexts[2].BatchItemCount.Should().Be(1);
         capturedContexts[2].SourceMetadata["page"].Should().Be("page-101");
+    }
+
+    [Fact]
+    public async Task RunEachAsync_should_retry_failed_item_until_success_when_with_retry_is_configured()
+    {
+        var attempts = new List<int>();
+
+        var summary = await BatchJob
+            .Named("run-each-retry")
+            .From(new NonResumableDataSource<int>([1]))
+            .WithBatchSize(1)
+            .WithRetry(2, TimeSpan.Zero)
+            .RunEachAsync((item, context, _) =>
+            {
+                attempts.Add(context.Attempt);
+
+                if (context.Attempt < 3)
+                {
+                    throw new InvalidOperationException($"temporary failure for item {item}");
+                }
+
+                return new ValueTask<ProcessingResult>(ProcessingResult.Success());
+            });
+
+        summary.Status.Should().Be(JobCompletionStatus.Succeeded);
+        summary.ProcessedBatchCount.Should().Be(1);
+        summary.SucceededItemCount.Should().Be(1);
+        summary.SkippedItemCount.Should().Be(0);
+        attempts.Should().Equal(1, 2, 3);
     }
 
     [Fact]
@@ -350,6 +428,40 @@ public sealed class BatchJobBuilderTests
     }
 
     [Fact]
+    public async Task RunBatchAsync_should_retry_failed_batch_until_success_when_with_retry_is_configured()
+    {
+        var attempts = new List<int>();
+
+        var summary = await BatchJob
+            .Named("run-batch-retry")
+            .From(new NonResumableDataSource<int>([1, 2]))
+            .WithBatchSize(2)
+            .ProcessBatch((items, context, _) =>
+            {
+                attempts.Add(context.Attempt);
+
+                if (context.Attempt < 3)
+                {
+                    throw new InvalidOperationException($"temporary batch failure for {items.Count} items");
+                }
+
+                return new ValueTask<BatchProcessingResult>(BatchProcessingResult.AllSucceeded(items.Count));
+            })
+            .WithRetry(new BatchRetryOptions
+            {
+                MaxRetryAttempts = 2,
+                Delay = TimeSpan.Zero,
+            })
+            .RunAsync();
+
+        summary.Status.Should().Be(JobCompletionStatus.Succeeded);
+        summary.ProcessedBatchCount.Should().Be(1);
+        summary.SucceededItemCount.Should().Be(2);
+        summary.SkippedItemCount.Should().Be(0);
+        attempts.Should().Equal(1, 2, 3);
+    }
+
+    [Fact]
     public async Task RunBatchAsync_should_return_completed_with_skips_when_handler_returns_mixed_result()
     {
         var summary = await BatchJob
@@ -428,6 +540,22 @@ public sealed class BatchJobBuilderTests
             BatchCheckpoint = checkpoint,
             ItemIndex = 0,
             BatchItemCount = 1,
+        };
+
+    private static FailureContext<int, TCheckpoint> CreateFailureContext<TCheckpoint>(
+        int attempt,
+        Exception exception) =>
+        new()
+        {
+            Job = CreateJobContext(),
+            BatchSequence = 1,
+            BatchCheckpoint = default!,
+            BatchItems = [1],
+            Attempt = attempt,
+            Exception = exception,
+            Scope = FailureScope.Item,
+            ItemIndex = 0,
+            FailedItem = 1,
         };
 
     private static async IAsyncEnumerable<SourceBatch<TItem, TCheckpoint>> EmptyBatches<TItem, TCheckpoint>()
