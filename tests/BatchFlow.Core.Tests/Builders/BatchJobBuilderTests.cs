@@ -175,6 +175,84 @@ public sealed class BatchJobBuilderTests
     }
 
     [Fact]
+    public async Task RunEachAsync_should_execute_builder_and_pass_context_and_cancellation_token()
+    {
+        var source = new DelegateBatchSource<int, long>(
+            (_, _) => ToAsyncEnumerable(
+                CreateBatch([10, 11], checkpoint: 100L, metadata: "page-100"),
+                CreateBatch([12], checkpoint: 101L, metadata: "page-101")));
+
+        var checkpointStore = new InMemoryCheckpointStore<long>();
+        var capturedContexts = new List<ItemProcessingContext<long>>();
+        var tokenMatches = new List<bool>();
+        using var cancellationTokenSource = new CancellationTokenSource();
+
+        var summary = await BatchJob
+            .Named("run-each-resumable")
+            .From(source)
+            .WithBatchSize(2)
+            .WithCheckpoint("run-each-checkpoint", checkpointStore)
+            .RunEachAsync(
+                (item, context, token) =>
+                {
+                    capturedContexts.Add(context);
+                    tokenMatches.Add(token == cancellationTokenSource.Token);
+
+                    return new ValueTask<ProcessingResult>(ProcessingResult.Success($"processed:{item}"));
+                },
+                cancellationTokenSource.Token);
+
+        summary.Status.Should().Be(JobCompletionStatus.Succeeded);
+        summary.ProcessedBatchCount.Should().Be(2);
+        summary.SucceededItemCount.Should().Be(3);
+        summary.SkippedItemCount.Should().Be(0);
+        summary.LastPersistedCheckpoint.Should().NotBeNull();
+        summary.LastPersistedCheckpoint!.Value.Should().Be(101L);
+
+        tokenMatches.Should().OnlyContain(match => match);
+
+        capturedContexts.Should().HaveCount(3);
+
+        capturedContexts[0].BatchSequence.Should().Be(1);
+        capturedContexts[0].BatchCheckpoint.Should().Be(100L);
+        capturedContexts[0].ItemIndex.Should().Be(0);
+        capturedContexts[0].BatchItemCount.Should().Be(2);
+        capturedContexts[0].Attempt.Should().Be(1);
+        capturedContexts[0].SourceMetadata["page"].Should().Be("page-100");
+
+        capturedContexts[1].BatchSequence.Should().Be(1);
+        capturedContexts[1].BatchCheckpoint.Should().Be(100L);
+        capturedContexts[1].ItemIndex.Should().Be(1);
+        capturedContexts[1].BatchItemCount.Should().Be(2);
+
+        capturedContexts[2].BatchSequence.Should().Be(2);
+        capturedContexts[2].BatchCheckpoint.Should().Be(101L);
+        capturedContexts[2].ItemIndex.Should().Be(0);
+        capturedContexts[2].BatchItemCount.Should().Be(1);
+        capturedContexts[2].SourceMetadata["page"].Should().Be("page-101");
+    }
+
+    [Fact]
+    public async Task RunEachAsync_should_return_completed_with_skips_when_handler_skips_item()
+    {
+        var summary = await BatchJob
+            .Named("run-each-skips")
+            .From(new NonResumableDataSource<int>([1, 2, 3]))
+            .WithBatchSize(2)
+            .RunEachAsync((item, _, _) =>
+                new ValueTask<ProcessingResult>(
+                    item == 2
+                        ? ProcessingResult.Skipped("skip-second-item", code: "skip-2")
+                        : ProcessingResult.Success()));
+
+        summary.Status.Should().Be(JobCompletionStatus.CompletedWithSkips);
+        summary.ProcessedBatchCount.Should().Be(2);
+        summary.SucceededItemCount.Should().Be(2);
+        summary.SkippedItemCount.Should().Be(1);
+        summary.Exception.Should().BeNull();
+    }
+
+    [Fact]
     public async Task RunAsync_should_use_explicit_run_options_for_built_definition()
     {
         var executionEngine = new RecordingExecutionEngine();
@@ -196,6 +274,28 @@ public sealed class BatchJobBuilderTests
         executionEngine.CapturedRequest!.RunId.Should().Be("custom-run-001");
         executionEngine.CapturedRequest.Job.Should().BeSameAs(job);
         summary.Job.RunId.Should().Be("custom-run-001");
+        summary.Status.Should().Be(JobCompletionStatus.Succeeded);
+    }
+
+    [Fact]
+    public async Task RunEachAsync_should_use_explicit_run_options()
+    {
+        var executionEngine = new RecordingExecutionEngine();
+
+        var summary = await BatchJob
+            .Named("run-each-options")
+            .From(new DelegateBatchSource<int, long>((_, _) => EmptyBatches<int, long>()))
+            .RunEachAsync(
+                (_, _, _) => new ValueTask<ProcessingResult>(ProcessingResult.Success()),
+                new BatchJobRunOptions
+                {
+                    RunId = "run-each-custom-001",
+                    ExecutionEngine = executionEngine,
+                });
+
+        executionEngine.CapturedRequest.Should().NotBeNull();
+        executionEngine.CapturedRequest!.RunId.Should().Be("run-each-custom-001");
+        summary.Job.RunId.Should().Be("run-each-custom-001");
         summary.Status.Should().Be(JobCompletionStatus.Succeeded);
     }
 
@@ -232,6 +332,30 @@ public sealed class BatchJobBuilderTests
         await Task.CompletedTask;
         yield break;
     }
+
+    private static async IAsyncEnumerable<SourceBatch<int, long>> ToAsyncEnumerable(
+        params SourceBatch<int, long>[] batches)
+    {
+        foreach (var batch in batches)
+        {
+            yield return batch;
+            await Task.Yield();
+        }
+    }
+
+    private static SourceBatch<int, long> CreateBatch(
+        IReadOnlyList<int> items,
+        long checkpoint,
+        string metadata) =>
+        new()
+        {
+            Items = items,
+            Checkpoint = checkpoint,
+            Metadata = new Dictionary<string, string>
+            {
+                ["page"] = metadata,
+            },
+        };
 
     private sealed class NonResumableTestSource<TItem> : IBatchSource<TItem>
     {
