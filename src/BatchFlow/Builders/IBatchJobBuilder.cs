@@ -34,6 +34,20 @@ public interface IBatchJobBuilder<TItem, TCheckpoint>
     IBatchJobBuilder<TItem, TCheckpoint> WithFailurePolicy(IFailurePolicy<TItem, TCheckpoint> failurePolicy);
 
     /// <summary>
+    /// Настраивает встроенную retry-модель runtime и заменяет ранее заданные built-in параметры повторных попыток.
+    /// </summary>
+    /// <param name="options">Параметры встроенной retry-стратегии.</param>
+    /// <returns>Текущую стадию builder для продолжения настройки.</returns>
+    IBatchJobBuilder<TItem, TCheckpoint> WithRetryOptions(BatchRetryOptions options);
+
+    /// <summary>
+    /// Задает terminal-поведение встроенной модели обработки ошибок после исчерпания retry.
+    /// </summary>
+    /// <param name="terminalAction">Конечное действие runtime после неуспешной обработки.</param>
+    /// <returns>Текущую стадию builder для продолжения настройки.</returns>
+    IBatchJobBuilder<TItem, TCheckpoint> WithTerminalFailureAction(BatchFailureTerminalAction terminalAction);
+
+    /// <summary>
     /// Выбирает поэлементный обработчик.
     /// </summary>
     /// <param name="processor">Реализация поэлементного обработчика.</param>
