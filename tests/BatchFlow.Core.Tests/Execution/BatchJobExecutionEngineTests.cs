@@ -324,6 +324,50 @@ public sealed class BatchJobExecutionEngineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_WhenFailurePolicySkipsBatch_StillSavesCheckpoint()
+    {
+        var checkpointStore = new InMemoryCheckpointStore<long>();
+        var observer = new RecordingExecutionObserver<long>();
+
+        var job = new BatchJobDefinition<int, long>
+        {
+            JobName = "skip-by-policy-persists-checkpoint",
+            Source = new DelegateBatchSource<int, long>((_, _) => ToAsyncEnumerable(CreateBatch([1, 2], 45L, metadata: "page-45"))),
+            ProcessingMode = new BatchProcessorRegistration<int, long>(
+                new DelegateBatchProcessor<int, long>((_, _, _) =>
+                    throw new InvalidOperationException("batch failed"))),
+            BatchSize = 2,
+            DegreeOfParallelism = 1,
+            CheckpointStore = checkpointStore,
+            FailurePolicy = new FixedRetryFailurePolicy<int, long>(
+                new BatchRetryOptions
+                {
+                    MaxRetryAttempts = 0,
+                },
+                BatchFailureTerminalAction.Skip),
+            Observers = [observer],
+        };
+
+        var summary = await _engine.ExecuteAsync(new BatchJobExecutionRequest<int, long>
+        {
+            Job = job,
+            RunId = "run-skip-by-policy-persists-checkpoint",
+        });
+
+        summary.Status.Should().Be(JobCompletionStatus.CompletedWithSkips);
+        summary.ProcessedBatchCount.Should().Be(1);
+        summary.SucceededItemCount.Should().Be(0);
+        summary.SkippedItemCount.Should().Be(2);
+        summary.LastPersistedCheckpoint.Should().NotBeNull();
+        summary.LastPersistedCheckpoint!.Value.Should().Be(45L);
+        summary.LastPersistedCheckpoint.SequenceNumber.Should().Be(1);
+
+        checkpointStore.SaveCallCount.Should().Be(1);
+        observer.Events.OfType<CheckpointSavedEvent<long>>().Should().ContainSingle();
+        observer.Events.OfType<JobCompletedEvent<long>>().Single().Status.Should().Be(JobCompletionStatus.CompletedWithSkips);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_WhenBatchProcessingFails_DoesNotSaveCheckpoint()
     {
         var checkpointStore = new InMemoryCheckpointStore<long>();
