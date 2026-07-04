@@ -25,6 +25,7 @@ var orders = new List<Order>
 
 var source = new OrdersBatchSource(orders);
 var checkpointStore = new InMemoryCheckpointStore<int>();
+var attemptsByOrderId = new Dictionary<int, int>();
 
 // Имитируем, что предыдущий запуск уже подтвердил обработку первых двух заказов.
 checkpointStore.Seed(
@@ -43,14 +44,38 @@ var summary = await BatchJob
     .WithBatchSize(7)
     .WithDegreeOfParallelism(1)
     .WithCheckpoint("orders-demo-v1", checkpointStore)
+    .WithRetry(2, TimeSpan.FromMilliseconds(150))
+    .WithSkipOnFailure()
     .RunEachAsync(
         async (order, context, token) =>
         {
+            attemptsByOrderId.TryGetValue(order.Id, out var currentAttempts);
+            var attempt = currentAttempts + 1;
+            attemptsByOrderId[order.Id] = attempt;
+
             await Task.Delay(50, token);
+
+            if (order.Id == 5 && attempt == 1)
+            {
+                Console.WriteLine(
+                    $"Временный сбой для заказа {order.Number} на попытке #{context.Attempt}. " +
+                    "Runtime выполнит retry.");
+
+                throw new InvalidOperationException("Временный сбой при выгрузке заказа.");
+            }
+
+            if (order.Id == 8)
+            {
+                Console.WriteLine(
+                    $"Постоянный сбой для заказа {order.Number} на попытке #{context.Attempt}. " +
+                    "После исчерпания retry элемент будет пропущен.");
+
+                throw new InvalidOperationException("Постоянный сбой при выгрузке заказа.");
+            }
 
             Console.WriteLine(
                 $"Обработка заказа {order.Number} | Сумма: {order.Amount:N0} | " +
-                $"Batch #{context.BatchSequence} | Item #{context.ItemIndex}");
+                $"Batch #{context.BatchSequence} | Item #{context.ItemIndex} | Attempt #{context.Attempt}");
 
             return ProcessingResult.Success($"Заказ {order.Number} успешно выгружен.");
         },
@@ -66,6 +91,7 @@ Console.WriteLine($"Статус: {summary.Status}");
 Console.WriteLine($"Обработано пакетов: {summary.ProcessedBatchCount}");
 Console.WriteLine($"Успешно обработано элементов: {summary.SucceededItemCount}");
 Console.WriteLine($"Пропущено элементов: {summary.SkippedItemCount}");
+Console.WriteLine($"Причина завершения: {summary.Reason ?? "<нет>"}");
 Console.WriteLine($"Точка возобновления на старте: {summary.ResumeFrom?.Value.ToString() ?? "<нет>"}");
 Console.WriteLine($"Последняя сохраненная контрольная точка: {summary.LastPersistedCheckpoint?.Value.ToString() ?? "<нет>"}");
 
