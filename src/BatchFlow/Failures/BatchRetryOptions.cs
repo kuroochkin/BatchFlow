@@ -1,7 +1,8 @@
 namespace BatchFlow;
 
 /// <summary>
-/// Описывает параметры базовой fixed retry-стратегии для item- и batch-обработки.
+/// Описывает параметры встроенной fixed retry-стратегии для item- и batch-обработки.
+/// Terminal-поведение после исчерпания повторных попыток настраивается отдельно через fluent API builder-а.
 /// </summary>
 public sealed record BatchRetryOptions
 {
