@@ -1,4 +1,3 @@
-using BatchFlow.Abstractions.Failures;
 using BatchFlow.Builders;
 
 namespace BatchFlow;
@@ -42,7 +41,7 @@ public static class BatchJobRetryBuilderExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(options);
 
-        return builder.WithFailurePolicy(CreateFailurePolicy<TItem, TCheckpoint>(options));
+        return builder.WithRetryOptions(options);
     }
 
     /// <summary>
@@ -79,7 +78,7 @@ public static class BatchJobRetryBuilderExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(options);
 
-        return builder.WithFailurePolicy(CreateFailurePolicy<TItem, TCheckpoint>(options));
+        return builder.WithRetryOptions(options);
     }
 
     /// <summary>
@@ -116,7 +115,7 @@ public static class BatchJobRetryBuilderExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(options);
 
-        return builder.WithFailurePolicy(CreateFailurePolicy<TItem, TCheckpoint>(options));
+        return builder.WithRetryOptions(options);
     }
 
     /// <summary>
@@ -153,9 +152,6 @@ public static class BatchJobRetryBuilderExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(options);
 
-        return builder.WithFailurePolicy(CreateFailurePolicy<TItem, TCheckpoint>(options));
+        return builder.WithRetryOptions(options);
     }
-
-    private static IFailurePolicy<TItem, TCheckpoint> CreateFailurePolicy<TItem, TCheckpoint>(BatchRetryOptions options) =>
-        new FixedRetryFailurePolicy<TItem, TCheckpoint>(options);
 }
