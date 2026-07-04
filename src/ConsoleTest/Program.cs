@@ -42,17 +42,17 @@ var summary = await BatchJob
     .WithBatchSize(7)
     .WithDegreeOfParallelism(1)
     .WithCheckpoint("orders-demo-v1", checkpointStore)
-    .ProcessEach(async (order, context, token) =>
-    {
-        await Task.Delay(50, token);
+    .RunEachAsync(
+        async (order, context, token) =>
+        {
+            await Task.Delay(50, token);
 
-        Console.WriteLine(
-            $"Обработка заказа {order.Number} | Сумма: {order.Amount:N0} | " +
-            $"Batch #{context.BatchSequence} | Item #{context.ItemIndex}");
+            Console.WriteLine(
+                $"Обработка заказа {order.Number} | Сумма: {order.Amount:N0} | " +
+                $"Batch #{context.BatchSequence} | Item #{context.ItemIndex}");
 
-        return ProcessingResult.Success($"Заказ {order.Number} успешно выгружен.");
-    })
-    .RunAsync(
+            return ProcessingResult.Success($"Заказ {order.Number} успешно выгружен.");
+        },
         new BatchJobRunOptions
         {
             RunId = $"orders-demo-{DateTime.UtcNow:yyyyMMddHHmmss}",
