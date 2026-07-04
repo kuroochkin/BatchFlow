@@ -43,6 +43,7 @@ var summary = await BatchJob
     .From(source)
     .WithBatchSize(7)
     .WithDegreeOfParallelism(1)
+    .WithPrefetchCapacity(2)
     .WithCheckpoint("orders-demo-v1", checkpointStore)
     .WithRetry(2, TimeSpan.FromMilliseconds(150))
     .WithSkipOnFailure()

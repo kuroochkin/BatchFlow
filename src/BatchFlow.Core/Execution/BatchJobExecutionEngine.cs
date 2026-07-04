@@ -5,6 +5,7 @@ using BatchFlow.Abstractions.Observability;
 using BatchFlow.Abstractions.Processing;
 using BatchFlow.Abstractions.Results;
 using BatchFlow.Abstractions.Sources;
+using BatchFlow.Core.Execution.Buffering;
 using BatchFlow.Core.Execution.Exceptions;
 using BatchFlow.Core.Execution.Models;
 using BatchFlow.Core.Jobs;
@@ -13,7 +14,8 @@ using BatchFlow.Core.Processing;
 namespace BatchFlow.Core.Execution;
 
 /// <summary>
-/// Реализует базовый последовательный движок выполнения пакетных задач.
+/// Реализует базовый движок выполнения пакетных задач
+/// с буферизированным чтением и последовательной обработкой.
 /// </summary>
 public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
 {
@@ -49,6 +51,7 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
             StartedAt = timeProvider.GetUtcNow(),
             BatchSize = job.BatchSize,
             DegreeOfParallelism = job.DegreeOfParallelism,
+            PrefetchCapacity = job.PrefetchCapacity,
         };
 
         var runtime = new BatchJobRuntimeState<TCheckpoint>(jobContext, timeProvider);
@@ -74,121 +77,140 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
             var batches = job.Source.ReadAsync(sourceContext, cancellationToken)
                 ?? throw new InvalidOperationException("Источник данных вернул пустую последовательность пакетов.");
 
-            await foreach (var batch in batches.WithCancellation(cancellationToken))
+            await using var bufferedBatches = BufferedBatchChannel<TItem, TCheckpoint>.Start(
+                job,
+                batches,
+                cancellationToken);
+
+            try
             {
-                ValidateBatch(job, batch);
-                runtime.BatchSequence++;
-
-                var processingContext = new BatchProcessingContext<TCheckpoint>
+                await foreach (var batch in bufferedBatches.Reader.ReadAllAsync(cancellationToken))
                 {
-                    Job = jobContext,
-                    BatchSequence = runtime.BatchSequence,
-                    BatchCheckpoint = batch.Checkpoint,
-                    SourceMetadata = batch.Metadata,
-                    Attempt = 1,
-                    ItemCount = batch.Items.Count,
-                };
+                    ValidateBatch(job, batch);
+                    runtime.BatchSequence++;
 
-                await PublishAsync(job.Observers, new BatchStartedEvent<TCheckpoint>
-                {
-                    Job = jobContext,
-                    OccurredAt = timeProvider.GetUtcNow(),
-                    BatchSequence = runtime.BatchSequence,
-                    BatchCheckpoint = batch.Checkpoint,
-                    Attempt = 1,
-                    ItemCount = batch.Items.Count,
-                    SourceMetadata = batch.Metadata,
-                }, cancellationToken);
+                    var processingContext = new BatchProcessingContext<TCheckpoint>
+                    {
+                        Job = jobContext,
+                        BatchSequence = runtime.BatchSequence,
+                        BatchCheckpoint = batch.Checkpoint,
+                        SourceMetadata = batch.Metadata,
+                        Attempt = 1,
+                        ItemCount = batch.Items.Count,
+                    };
 
-                ProcessingExecutionResult processingResult;
+                    await PublishAsync(job.Observers, new BatchStartedEvent<TCheckpoint>
+                    {
+                        Job = jobContext,
+                        OccurredAt = timeProvider.GetUtcNow(),
+                        BatchSequence = runtime.BatchSequence,
+                        BatchCheckpoint = batch.Checkpoint,
+                        Attempt = 1,
+                        ItemCount = batch.Items.Count,
+                        SourceMetadata = batch.Metadata,
+                    }, cancellationToken);
 
-                try
-                {
-                    processingResult = await ExecuteProcessingAsync(job, batch, processingContext, cancellationToken);
+                    ProcessingExecutionResult processingResult;
+
+                    try
+                    {
+                        processingResult = await ExecuteProcessingAsync(job, batch, processingContext, cancellationToken);
+                    }
+                    catch (BatchJobTerminationException ex)
+                    {
+                        await TryPublishFailureAsync(jobContext, job.Observers, batch, processingContext,
+                            ex.InnerException ?? ex, ex.Attempt, ex.ItemIndex, timeProvider, cancellationToken);
+
+                        runtime.Status = ex.Status;
+                        runtime.Reason = ex.Message;
+                        runtime.Exception = ex.InnerException ?? ex;
+
+                        await bufferedBatches.CompleteAsync(suppressProducerException: true);
+                        return await CompleteAsync(job.Observers, runtime, cancellationToken, suppressObserverFailures: true);
+                    }
+                    catch (BatchJobProcessingException ex)
+                    {
+                        await TryPublishFailureAsync(jobContext, job.Observers, batch, processingContext, ex.InnerException ?? ex,
+                            ex.Attempt, ex.ItemIndex, timeProvider, cancellationToken);
+
+                        runtime.Status = JobCompletionStatus.Failed;
+                        runtime.Reason = ex.Message;
+                        runtime.Exception = ex.InnerException ?? ex;
+
+                        await bufferedBatches.CompleteAsync(suppressProducerException: true);
+                        return await CompleteAsync(job.Observers, runtime, cancellationToken, suppressObserverFailures: true);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        runtime.Status = JobCompletionStatus.Cancelled;
+                        runtime.Reason = "Выполнение задачи было отменено.";
+
+                        await bufferedBatches.CompleteAsync(suppressProducerException: true);
+                        return await CompleteAsync(job.Observers, runtime, cancellationToken, suppressObserverFailures: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        await TryPublishFailureAsync(jobContext, job.Observers, batch, processingContext, ex, attempt: 1,
+                            itemIndex: null, timeProvider, cancellationToken);
+
+                        runtime.Status = JobCompletionStatus.Failed;
+                        runtime.Reason = "Обработка пакета завершилась ошибкой.";
+                        runtime.Exception = ex;
+
+                        await bufferedBatches.CompleteAsync(suppressProducerException: true);
+                        return await CompleteAsync(job.Observers, runtime, cancellationToken, suppressObserverFailures: true);
+                    }
+
+                    runtime.ProcessedBatchCount++;
+                    runtime.SucceededItemCount += processingResult.Result.SucceededCount;
+                    runtime.SkippedItemCount += processingResult.Result.SkippedCount;
+
+                    if (checkpointId is not null)
+                    {
+                        runtime.LastPersistedCheckpoint = await PersistCheckpointAsync(
+                            job,
+                            checkpointId,
+                            batch,
+                            runtime,
+                            cancellationToken);
+                    }
+
+                    await PublishAsync(job.Observers, new BatchCompletedEvent<TCheckpoint>
+                    {
+                        Job = jobContext,
+                        OccurredAt = timeProvider.GetUtcNow(),
+                        BatchSequence = runtime.BatchSequence,
+                        BatchCheckpoint = batch.Checkpoint,
+                        Attempt = processingResult.AttemptCount,
+                        ItemCount = processingResult.Result.ItemCount,
+                        SucceededCount = processingResult.Result.SucceededCount,
+                        SkippedCount = processingResult.Result.SkippedCount,
+                        SourceMetadata = batch.Metadata,
+                    }, cancellationToken);
+
+                    if (checkpointId is null)
+                    {
+                        continue;
+                    }
+
+                    var persistedCheckpoint = runtime.LastPersistedCheckpoint
+                        ?? throw new InvalidOperationException(
+                            "Движок не сохранил контрольную точку после подтвержденной обработки пакета.");
+
+                    await PublishAsync(job.Observers, new CheckpointSavedEvent<TCheckpoint>
+                    {
+                        Job = jobContext,
+                        OccurredAt = timeProvider.GetUtcNow(),
+                        Checkpoint = persistedCheckpoint,
+                    }, cancellationToken);
                 }
-                catch (BatchJobTerminationException ex)
-                {
-                    await TryPublishFailureAsync(jobContext, job.Observers, batch, processingContext,
-                        ex.InnerException ?? ex, ex.Attempt, ex.ItemIndex, timeProvider, cancellationToken);
 
-                    runtime.Status = ex.Status;
-                    runtime.Reason = ex.Message;
-                    runtime.Exception = ex.InnerException ?? ex;
-
-                    return await CompleteAsync(job.Observers, runtime, cancellationToken, suppressObserverFailures: true);
-                }
-                catch (BatchJobProcessingException ex)
-                {
-                    await TryPublishFailureAsync(jobContext, job.Observers, batch, processingContext, ex.InnerException ?? ex,
-                        ex.Attempt, ex.ItemIndex, timeProvider, cancellationToken);
-
-                    runtime.Status = JobCompletionStatus.Failed;
-                    runtime.Reason = ex.Message;
-                    runtime.Exception = ex.InnerException ?? ex;
-
-                    return await CompleteAsync(job.Observers, runtime, cancellationToken, suppressObserverFailures: true);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    runtime.Status = JobCompletionStatus.Cancelled;
-                    runtime.Reason = "Выполнение задачи было отменено.";
-                    
-                    return await CompleteAsync(job.Observers, runtime, cancellationToken, suppressObserverFailures: true);
-                }
-                catch (Exception ex)
-                {
-                    await TryPublishFailureAsync(jobContext, job.Observers, batch, processingContext, ex, attempt: 1,
-                        itemIndex: null, timeProvider, cancellationToken);
-
-                    runtime.Status = JobCompletionStatus.Failed;
-                    runtime.Reason = "Обработка пакета завершилась ошибкой.";
-                    runtime.Exception = ex;
-
-                    return await CompleteAsync(job.Observers, runtime, cancellationToken, suppressObserverFailures: true);
-                }
-
-                runtime.ProcessedBatchCount++;
-                runtime.SucceededItemCount += processingResult.Result.SucceededCount;
-                runtime.SkippedItemCount += processingResult.Result.SkippedCount;
-
-                if (checkpointId is not null)
-                {
-                    runtime.LastPersistedCheckpoint = await PersistCheckpointAsync(
-                        job,
-                        checkpointId,
-                        batch,
-                        runtime,
-                        cancellationToken);
-                }
-
-                await PublishAsync(job.Observers, new BatchCompletedEvent<TCheckpoint>
-                {
-                    Job = jobContext,
-                    OccurredAt = timeProvider.GetUtcNow(),
-                    BatchSequence = runtime.BatchSequence,
-                    BatchCheckpoint = batch.Checkpoint,
-                    Attempt = processingResult.AttemptCount,
-                    ItemCount = processingResult.Result.ItemCount,
-                    SucceededCount = processingResult.Result.SucceededCount,
-                    SkippedCount = processingResult.Result.SkippedCount,
-                    SourceMetadata = batch.Metadata,
-                }, cancellationToken);
-
-                if (checkpointId is null)
-                {
-                    continue;
-                }
-
-                var persistedCheckpoint = runtime.LastPersistedCheckpoint
-                    ?? throw new InvalidOperationException(
-                        "Движок не сохранил контрольную точку после подтвержденной обработки пакета.");
-
-                await PublishAsync(job.Observers, new CheckpointSavedEvent<TCheckpoint>
-                {
-                    Job = jobContext,
-                    OccurredAt = timeProvider.GetUtcNow(),
-                    Checkpoint = persistedCheckpoint,
-                }, cancellationToken);
+                await bufferedBatches.CompleteAsync(suppressProducerException: false);
+            }
+            catch
+            {
+                await bufferedBatches.CompleteAsync(suppressProducerException: true);
+                throw;
             }
 
             runtime.Status = runtime.SkippedItemCount > 0
@@ -242,6 +264,11 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
         if (job.DegreeOfParallelism <= 0)
         {
             throw new BatchJobConfigurationException("Степень параллелизма должна быть больше нуля.");
+        }
+
+        if (job.PrefetchCapacity <= 0)
+        {
+            throw new BatchJobConfigurationException("Емкость очереди предварительного чтения должна быть больше нуля.");
         }
 
         if (job.CheckpointStore is null && !string.IsNullOrWhiteSpace(job.CheckpointId))

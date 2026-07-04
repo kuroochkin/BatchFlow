@@ -29,6 +29,15 @@ internal static class BatchJobBuilderValidation
         }
     }
 
+    public static void ValidatePrefetchCapacity(int prefetchCapacity)
+    {
+        if (prefetchCapacity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(prefetchCapacity), prefetchCapacity,
+                "Емкость очереди предварительного чтения должна быть положительным числом.");
+        }
+    }
+
     public static void ValidateRetryOptions(BatchRetryOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -79,6 +88,7 @@ internal static class BatchJobBuilderValidation
         ValidateJobName(state.JobName);
         ValidateBatchSize(state.BatchSize);
         ValidateDegreeOfParallelism(state.DegreeOfParallelism);
+        ValidatePrefetchCapacity(state.PrefetchCapacity);
 
         if (state.ProcessingMode is null)
         {

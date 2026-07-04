@@ -1,4 +1,5 @@
 using BatchFlow.Abstractions.Checkpoints;
+using BatchFlow.Abstractions.Execution;
 using BatchFlow.Abstractions.Failures;
 using BatchFlow.Abstractions.Observability;
 using BatchFlow.Abstractions.Results;
@@ -368,6 +369,96 @@ public sealed class BatchJobExecutionEngineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_WithPrefetchCapacityOfOne_AppliesBackpressureBeforeReadingThirdBatch()
+    {
+        var source = new TrackingBufferedSource(
+            CreateBatch([1], 101L, metadata: "page-101"),
+            CreateBatch([2], 102L, metadata: "page-102"),
+            CreateBatch([3], 103L, metadata: "page-103"));
+
+        var firstBatchProcessingStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowFirstBatchProcessingToContinue = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var job = new BatchJobDefinition<int, long>
+        {
+            JobName = "buffered-backpressure",
+            Source = source,
+            BatchSize = 1,
+            DegreeOfParallelism = 1,
+            PrefetchCapacity = 1,
+            ProcessingMode = new BatchProcessorRegistration<int, long>(
+                new DelegateBatchProcessor<int, long>(async (_, context, _) =>
+                {
+                    if (context.BatchSequence == 1)
+                    {
+                        firstBatchProcessingStarted.TrySetResult(true);
+                        await allowFirstBatchProcessingToContinue.Task;
+                    }
+
+                    return BatchProcessingResult.AllSucceeded(context.ItemCount);
+                })),
+        };
+
+        var executionTask = _engine.ExecuteAsync(new BatchJobExecutionRequest<int, long>
+        {
+            Job = job,
+            RunId = "run-buffered-backpressure",
+        }).AsTask();
+
+        await firstBatchProcessingStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitUntilAsync(() => source.EnumeratedBatchCount >= 2);
+
+        source.EnumeratedBatchCount.Should().Be(2);
+
+        await Task.Delay(100);
+
+        source.EnumeratedBatchCount.Should().Be(2);
+
+        allowFirstBatchProcessingToContinue.TrySetResult(true);
+
+        var summary = await executionTask;
+
+        summary.Status.Should().Be(JobCompletionStatus.Succeeded);
+        summary.ProcessedBatchCount.Should().Be(3);
+        summary.SucceededItemCount.Should().Be(3);
+        source.EnumeratedBatchCount.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenSourceThrowsAfterFirstBufferedBatch_ReturnsFailedSummary()
+    {
+        var sourceException = new InvalidOperationException("source failed after first batch");
+        var source = new ThrowingAfterFirstBatchSource(
+            CreateBatch([1], 201L, metadata: "page-201"),
+            sourceException);
+
+        var job = new BatchJobDefinition<int, long>
+        {
+            JobName = "buffered-source-failure",
+            Source = source,
+            BatchSize = 1,
+            DegreeOfParallelism = 1,
+            PrefetchCapacity = 2,
+            ProcessingMode = new ItemProcessorRegistration<int, long>(
+                new DelegateItemProcessor<int, long>((_, _, _) =>
+                    new ValueTask<ProcessingResult>(ProcessingResult.Success()))),
+        };
+
+        var summary = await _engine.ExecuteAsync(new BatchJobExecutionRequest<int, long>
+        {
+            Job = job,
+            RunId = "run-buffered-source-failure",
+        });
+
+        summary.Status.Should().Be(JobCompletionStatus.Failed);
+        summary.ProcessedBatchCount.Should().Be(1);
+        summary.SucceededItemCount.Should().Be(1);
+        summary.SkippedItemCount.Should().Be(0);
+        summary.Exception.Should().BeSameAs(sourceException);
+        summary.Reason.Should().Be("source failed after first batch");
+    }
+
+    [Fact]
     public async Task ExecuteAsync_WhenBatchProcessingFails_DoesNotSaveCheckpoint()
     {
         var checkpointStore = new InMemoryCheckpointStore<long>();
@@ -536,6 +627,60 @@ public sealed class BatchJobExecutionEngineTests
         {
             yield return batch;
             await Task.Yield();
+        }
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan? timeout = null)
+    {
+        var deadline = DateTimeOffset.UtcNow + (timeout ?? TimeSpan.FromSeconds(5));
+
+        while (!condition())
+        {
+            if (DateTimeOffset.UtcNow >= deadline)
+            {
+                throw new TimeoutException("Условие не выполнилось в ожидаемое время.");
+            }
+
+            await Task.Delay(10);
+        }
+    }
+
+    private sealed class TrackingBufferedSource(params SourceBatch<int, long>[] batches) : IBatchSource<int, long>
+    {
+        private readonly IReadOnlyList<SourceBatch<int, long>> _batches = batches;
+        private int _enumeratedBatchCount;
+
+        public int EnumeratedBatchCount => Volatile.Read(ref _enumeratedBatchCount);
+
+        public async IAsyncEnumerable<SourceBatch<int, long>> ReadAsync(
+            BatchSourceContext<long> context,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            foreach (var batch in _batches)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                Interlocked.Increment(ref _enumeratedBatchCount);
+                yield return batch;
+                await Task.Yield();
+            }
+        }
+    }
+
+    private sealed class ThrowingAfterFirstBatchSource(
+        SourceBatch<int, long> batch,
+        Exception exception) : IBatchSource<int, long>
+    {
+        private readonly SourceBatch<int, long> _batch = batch;
+        private readonly Exception _exception = exception;
+
+        public async IAsyncEnumerable<SourceBatch<int, long>> ReadAsync(
+            BatchSourceContext<long> context,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return _batch;
+            await Task.Yield();
+            throw _exception;
         }
     }
 }
