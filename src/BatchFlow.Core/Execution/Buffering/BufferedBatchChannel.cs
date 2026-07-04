@@ -77,7 +77,7 @@ internal sealed class BufferedBatchChannel<TItem, TCheckpoint> : IAsyncDisposabl
 
         if (suppressProducerException && !_producerTask.IsCompleted)
         {
-            _producerCancellationSource.Cancel();
+            await _producerCancellationSource.CancelAsync();
         }
 
         try
