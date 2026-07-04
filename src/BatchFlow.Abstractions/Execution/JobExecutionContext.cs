@@ -35,4 +35,10 @@ public sealed record JobExecutionContext
     /// Степень параллелизма задачи.
     /// </summary>
     public int DegreeOfParallelism { get; init; } = 1;
+
+    /// <summary>
+    /// Количество пакетов, которое runtime может предварительно прочитать и удерживать
+    /// в ограниченной очереди между чтением и обработкой.
+    /// </summary>
+    public int PrefetchCapacity { get; init; } = 1;
 }
