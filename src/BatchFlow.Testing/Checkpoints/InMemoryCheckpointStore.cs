@@ -8,7 +8,7 @@ namespace BatchFlow.Testing.Checkpoints;
 /// <typeparam name="TCheckpoint">Тип значения контрольной точки.</typeparam>
 public sealed class InMemoryCheckpointStore<TCheckpoint> : ICheckpointStore<TCheckpoint>
 {
-    private readonly Dictionary<string, StoredCheckpoint<TCheckpoint>> _storage = new(StringComparer.Ordinal);
+    private readonly BatchFlow.Checkpoints.InMemoryCheckpointStore<TCheckpoint> _innerStore = new();
     private readonly List<CheckpointSaveRequest<TCheckpoint>> _saveRequests = [];
     private readonly List<StoredCheckpoint<TCheckpoint>> _savedCheckpoints = [];
 
@@ -49,10 +49,7 @@ public sealed class InMemoryCheckpointStore<TCheckpoint> : ICheckpointStore<TChe
     /// <param name="checkpoint">Контрольная точка, которую нужно считать уже сохраненной.</param>
     public void Seed(string checkpointId, StoredCheckpoint<TCheckpoint> checkpoint)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(checkpointId);
-        ArgumentNullException.ThrowIfNull(checkpoint);
-
-        _storage[checkpointId] = checkpoint;
+        _innerStore.Seed(checkpointId, checkpoint);
     }
 
     /// <summary>
@@ -60,9 +57,7 @@ public sealed class InMemoryCheckpointStore<TCheckpoint> : ICheckpointStore<TChe
     /// </summary>
     public bool TryGet(string checkpointId, out StoredCheckpoint<TCheckpoint>? checkpoint)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(checkpointId);
-
-        return _storage.TryGetValue(checkpointId, out checkpoint);
+        return _innerStore.TryGet(checkpointId, out checkpoint);
     }
 
     /// <inheritdoc />
@@ -77,9 +72,7 @@ public sealed class InMemoryCheckpointStore<TCheckpoint> : ICheckpointStore<TChe
             return await OnLoadAsync(checkpointId, cancellationToken);
         }
 
-        return _storage.TryGetValue(checkpointId, out var checkpoint)
-            ? checkpoint
-            : null;
+        return await _innerStore.LoadAsync(checkpointId, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -104,28 +97,17 @@ public sealed class InMemoryCheckpointStore<TCheckpoint> : ICheckpointStore<TChe
         if (OnSaveAsync is not null)
         {
             var saved = await OnSaveAsync(request, cancellationToken);
-            _storage[checkpointId] = saved;
+            _innerStore.Seed(checkpointId, saved);
             _savedCheckpoints.Add(saved);
             return saved;
         }
 
-        if (_storage.TryGetValue(checkpointId, out var current) &&
-            !string.Equals(current.ConcurrencyToken, expectedConcurrencyToken, StringComparison.Ordinal))
-        {
-            throw new CheckpointConflictException(checkpointId);
-        }
+        var savedCheckpoint = await _innerStore.SaveAsync(
+            checkpointId,
+            checkpoint,
+            expectedConcurrencyToken,
+            cancellationToken);
 
-        if (!_storage.ContainsKey(checkpointId) && expectedConcurrencyToken is not null)
-        {
-            throw new CheckpointConflictException(checkpointId);
-        }
-
-        var savedCheckpoint = checkpoint with
-        {
-            ConcurrencyToken = Guid.NewGuid().ToString("N"),
-        };
-
-        _storage[checkpointId] = savedCheckpoint;
         _savedCheckpoints.Add(savedCheckpoint);
         return savedCheckpoint;
     }

@@ -3,6 +3,7 @@ using BatchFlow.Abstractions.Checkpoints;
 using BatchFlow.Abstractions.Execution;
 using BatchFlow.Abstractions.Results;
 using BatchFlow.Abstractions.Sources;
+using BatchFlow.Checkpoints;
 
 var cancellationToken = CancellationToken.None;
 
@@ -68,15 +69,12 @@ Console.WriteLine($"Пропущено элементов: {summary.SkippedItemC
 Console.WriteLine($"Точка возобновления на старте: {summary.ResumeFrom?.Value.ToString() ?? "<нет>"}");
 Console.WriteLine($"Последняя сохраненная контрольная точка: {summary.LastPersistedCheckpoint?.Value.ToString() ?? "<нет>"}");
 
-Console.WriteLine();
-Console.WriteLine("История сохранений checkpoint:");
-
-foreach (var saveRequest in checkpointStore.SaveRequests)
+if (checkpointStore.TryGet("orders-demo-v1", out var currentCheckpoint))
 {
     Console.WriteLine(
-        $"checkpointId={saveRequest.CheckpointId}, " +
-        $"value={saveRequest.Checkpoint.Value}, " +
-        $"expectedToken={saveRequest.ExpectedConcurrencyToken ?? "<null>"}");
+        $"Checkpoint в store после завершения: value={currentCheckpoint!.Value}, " +
+        $"sequence={currentCheckpoint.SequenceNumber}, " +
+        $"savedAt={currentCheckpoint.SavedAt:O}");
 }
 
 internal sealed record Order(int Id, string Number, decimal Amount);
@@ -130,74 +128,4 @@ internal sealed class OrdersBatchSource(IReadOnlyList<Order> orders) : IBatchSou
             };
         }
     }
-}
-
-internal sealed class InMemoryCheckpointStore<TCheckpoint> : ICheckpointStore<TCheckpoint>
-{
-    private readonly Dictionary<string, StoredCheckpoint<TCheckpoint>> _storage = new(StringComparer.Ordinal);
-
-    public List<CheckpointSaveRequest<TCheckpoint>> SaveRequests { get; } = [];
-
-    public void Seed(string checkpointId, StoredCheckpoint<TCheckpoint> checkpoint)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(checkpointId);
-        ArgumentNullException.ThrowIfNull(checkpoint);
-
-        _storage[checkpointId] = checkpoint;
-    }
-
-    public ValueTask<StoredCheckpoint<TCheckpoint>?> LoadAsync(string checkpointId, CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(checkpointId);
-
-        _storage.TryGetValue(checkpointId, out var checkpoint);
-        return ValueTask.FromResult<StoredCheckpoint<TCheckpoint>?>(checkpoint);
-    }
-
-    public ValueTask<StoredCheckpoint<TCheckpoint>> SaveAsync(
-        string checkpointId,
-        StoredCheckpoint<TCheckpoint> checkpoint,
-        string? expectedConcurrencyToken,
-        CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(checkpointId);
-        ArgumentNullException.ThrowIfNull(checkpoint);
-
-        SaveRequests.Add(
-            new CheckpointSaveRequest<TCheckpoint>
-            {
-                CheckpointId = checkpointId,
-                Checkpoint = checkpoint,
-                ExpectedConcurrencyToken = expectedConcurrencyToken,
-            });
-
-        if (_storage.TryGetValue(checkpointId, out var existing) &&
-            !string.Equals(existing.ConcurrencyToken, expectedConcurrencyToken, StringComparison.Ordinal))
-        {
-            throw new CheckpointConflictException(checkpointId);
-        }
-
-        if (!_storage.ContainsKey(checkpointId) && expectedConcurrencyToken is not null)
-        {
-            throw new CheckpointConflictException(checkpointId);
-        }
-
-        var savedCheckpoint = checkpoint with
-        {
-            ConcurrencyToken = Guid.NewGuid().ToString("N"),
-            SavedAt = DateTimeOffset.UtcNow,
-        };
-
-        _storage[checkpointId] = savedCheckpoint;
-        return ValueTask.FromResult(savedCheckpoint);
-    }
-}
-
-internal sealed record CheckpointSaveRequest<TCheckpoint>
-{
-    public required string CheckpointId { get; init; }
-
-    public required StoredCheckpoint<TCheckpoint> Checkpoint { get; init; }
-
-    public string? ExpectedConcurrencyToken { get; init; }
 }

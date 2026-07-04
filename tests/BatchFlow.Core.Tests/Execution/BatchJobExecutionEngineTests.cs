@@ -104,6 +104,55 @@ public sealed class BatchJobExecutionEngineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_WithCheckpointStoreAndNoExplicitCheckpointId_UsesJobNameAsCheckpointId()
+    {
+        var loadedCheckpoint = new StoredCheckpoint<long>
+        {
+            Value = 9,
+            SequenceNumber = 2,
+            ConcurrencyToken = "seed-token",
+        };
+
+        var checkpointStore = new InMemoryCheckpointStore<long>();
+        checkpointStore.Seed("users-import", loadedCheckpoint);
+
+        var source = new DelegateBatchSource<int, long>(
+            (context, _) => ToAsyncEnumerable(CreateBatch([10, 11], checkpoint: 12L, metadata: "page-12")));
+
+        var job = new BatchJobDefinition<int, long>
+        {
+            JobName = "users-import",
+            Source = source,
+            ProcessingMode = new ItemProcessorRegistration<int, long>(
+                new DelegateItemProcessor<int, long>((_, _, _) =>
+                    new ValueTask<ProcessingResult>(ProcessingResult.Success()))),
+            BatchSize = 2,
+            DegreeOfParallelism = 1,
+            CheckpointStore = checkpointStore,
+        };
+
+        var summary = await _engine.ExecuteAsync(new BatchJobExecutionRequest<int, long>
+        {
+            Job = job,
+            RunId = "run-default-checkpoint-id",
+        });
+
+        summary.Status.Should().Be(JobCompletionStatus.Succeeded);
+        summary.Job.CheckpointId.Should().Be("users-import");
+        summary.ResumeFrom.Should().BeEquivalentTo(loadedCheckpoint);
+        summary.LastPersistedCheckpoint.Should().NotBeNull();
+        summary.LastPersistedCheckpoint!.Value.Should().Be(12L);
+
+        source.CapturedContexts.Should().ContainSingle();
+        source.CapturedContexts[0].ResumeFrom.Should().BeEquivalentTo(loadedCheckpoint);
+
+        checkpointStore.LoadCallCount.Should().Be(1);
+        checkpointStore.SaveCallCount.Should().Be(1);
+        checkpointStore.SaveRequests.Should().ContainSingle();
+        checkpointStore.SaveRequests[0].CheckpointId.Should().Be("users-import");
+    }
+
+    [Fact]
     public async Task ExecuteAsync_WithNonResumableSourceAndCheckpointStore_ThrowsConfigurationException()
     {
         var source = new DelegateBatchSource<int, NoCheckpoint>(
@@ -128,6 +177,69 @@ public sealed class BatchJobExecutionEngineTests
         await action.Should()
             .ThrowAsync<BatchJobConfigurationException>()
             .WithMessage("*хранилище контрольных точек*");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithCheckpointIdAndNoCheckpointStore_ThrowsConfigurationException()
+    {
+        var source = new DelegateBatchSource<int, long>(
+            (_, _) => ToAsyncEnumerable(CreateBatch([1], checkpoint: 10L, metadata: "single")));
+
+        var job = new BatchJobDefinition<int, long>
+        {
+            JobName = "users-import",
+            CheckpointId = "users-import-v1",
+            Source = source,
+            ProcessingMode = new ItemProcessorRegistration<int, long>(
+                new DelegateItemProcessor<int, long>((_, _, _) =>
+                    new ValueTask<ProcessingResult>(ProcessingResult.Success()))),
+        };
+
+        var action = () => _engine.ExecuteAsync(new BatchJobExecutionRequest<int, long>
+        {
+            Job = job,
+        }).AsTask();
+
+        await action.Should()
+            .ThrowAsync<BatchJobConfigurationException>()
+            .WithMessage("*checkpoint id*");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithResumableSourceAndNoCheckpointStore_DoesNotParticipateInCheckpointLifecycle()
+    {
+        var observer = new RecordingExecutionObserver<long>();
+        var source = new DelegateBatchSource<int, long>(
+            (context, _) => ToAsyncEnumerable(CreateBatch([1, 2], checkpoint: 15L, metadata: "page-15")));
+
+        var job = new BatchJobDefinition<int, long>
+        {
+            JobName = "resumable-without-store",
+            Source = source,
+            ProcessingMode = new ItemProcessorRegistration<int, long>(
+                new DelegateItemProcessor<int, long>((_, _, _) =>
+                    new ValueTask<ProcessingResult>(ProcessingResult.Success()))),
+            BatchSize = 2,
+            DegreeOfParallelism = 1,
+            Observers = [observer],
+        };
+
+        var summary = await _engine.ExecuteAsync(new BatchJobExecutionRequest<int, long>
+        {
+            Job = job,
+            RunId = "run-resumable-without-store",
+        });
+
+        summary.Status.Should().Be(JobCompletionStatus.Succeeded);
+        summary.Job.CheckpointId.Should().BeNull();
+        summary.ResumeFrom.Should().BeNull();
+        summary.LastPersistedCheckpoint.Should().BeNull();
+
+        source.CapturedContexts.Should().ContainSingle();
+        source.CapturedContexts[0].ResumeFrom.Should().BeNull();
+
+        observer.Events.OfType<JobStartedEvent<long>>().Single().ResumeFrom.Should().BeNull();
+        observer.Events.OfType<CheckpointSavedEvent<long>>().Should().BeEmpty();
     }
 
     [Fact]
@@ -171,6 +283,77 @@ public sealed class BatchJobExecutionEngineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_WhenBatchCompletesWithSkips_StillSavesCheckpoint()
+    {
+        var checkpointStore = new InMemoryCheckpointStore<long>();
+        var observer = new RecordingExecutionObserver<long>();
+
+        var job = new BatchJobDefinition<int, long>
+        {
+            JobName = "skip-persists-checkpoint",
+            Source = new DelegateBatchSource<int, long>((_, _) => ToAsyncEnumerable(CreateBatch([1, 2], 44L, metadata: "page-44"))),
+            ProcessingMode = new ItemProcessorRegistration<int, long>(
+                new DelegateItemProcessor<int, long>((item, _, _) =>
+                    new ValueTask<ProcessingResult>(
+                        item == 2
+                            ? ProcessingResult.Skipped("skip-item-2", code: "skip-2")
+                            : ProcessingResult.Success()))),
+            BatchSize = 2,
+            DegreeOfParallelism = 1,
+            CheckpointStore = checkpointStore,
+            Observers = [observer],
+        };
+
+        var summary = await _engine.ExecuteAsync(new BatchJobExecutionRequest<int, long>
+        {
+            Job = job,
+            RunId = "run-skips-save-checkpoint",
+        });
+
+        summary.Status.Should().Be(JobCompletionStatus.CompletedWithSkips);
+        summary.ProcessedBatchCount.Should().Be(1);
+        summary.SucceededItemCount.Should().Be(1);
+        summary.SkippedItemCount.Should().Be(1);
+        summary.LastPersistedCheckpoint.Should().NotBeNull();
+        summary.LastPersistedCheckpoint!.Value.Should().Be(44L);
+        summary.LastPersistedCheckpoint.SequenceNumber.Should().Be(1);
+
+        checkpointStore.SaveCallCount.Should().Be(1);
+        observer.Events.OfType<CheckpointSavedEvent<long>>().Should().ContainSingle();
+        observer.Events.OfType<JobCompletedEvent<long>>().Single().Status.Should().Be(JobCompletionStatus.CompletedWithSkips);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenBatchProcessingFails_DoesNotSaveCheckpoint()
+    {
+        var checkpointStore = new InMemoryCheckpointStore<long>();
+
+        var job = new BatchJobDefinition<int, long>
+        {
+            JobName = "failed-batch-without-checkpoint-save",
+            Source = new DelegateBatchSource<int, long>((_, _) => ToAsyncEnumerable(CreateBatch([1], 99L, metadata: "single"))),
+            ProcessingMode = new ItemProcessorRegistration<int, long>(
+                new DelegateItemProcessor<int, long>((_, _, _) =>
+                    throw new InvalidOperationException("processor failed"))),
+            BatchSize = 1,
+            DegreeOfParallelism = 1,
+            CheckpointStore = checkpointStore,
+        };
+
+        var summary = await _engine.ExecuteAsync(new BatchJobExecutionRequest<int, long>
+        {
+            Job = job,
+            RunId = "run-failed-batch-without-checkpoint-save",
+        });
+
+        summary.Status.Should().Be(JobCompletionStatus.Failed);
+        summary.ProcessedBatchCount.Should().Be(0);
+        summary.LastPersistedCheckpoint.Should().BeNull();
+        summary.Exception.Should().BeOfType<InvalidOperationException>();
+        checkpointStore.SaveCallCount.Should().Be(0);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_WhenCheckpointSaveConflicts_ReturnsFailedSummary()
     {
         var checkpointStore = new InMemoryCheckpointStore<long>
@@ -201,6 +384,54 @@ public sealed class BatchJobExecutionEngineTests
         summary.Exception.Should().BeOfType<CheckpointConflictException>();
         summary.Reason.Should().Be("Не удалось зафиксировать прогресс задачи из-за конфликта контрольной точки.");
         summary.LastPersistedCheckpoint.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenBatchCompletedObserverThrows_PersistsCheckpointBeforeFailingJob()
+    {
+        var checkpointStore = new InMemoryCheckpointStore<long>();
+        var observer = new RecordingExecutionObserver<long>((@event, _) =>
+        {
+            if (@event is BatchCompletedEvent<long>)
+            {
+                throw new InvalidOperationException("observer failed after batch completion");
+            }
+
+            return ValueTask.CompletedTask;
+        });
+
+        var job = new BatchJobDefinition<int, long>
+        {
+            JobName = "observer-failure-after-completion",
+            Source = new DelegateBatchSource<int, long>((_, _) => ToAsyncEnumerable(CreateBatch([1, 2], 77L, metadata: "page-77"))),
+            ProcessingMode = new ItemProcessorRegistration<int, long>(
+                new DelegateItemProcessor<int, long>((_, _, _) =>
+                    new ValueTask<ProcessingResult>(ProcessingResult.Success()))),
+            BatchSize = 2,
+            DegreeOfParallelism = 1,
+            CheckpointStore = checkpointStore,
+            Observers = [observer],
+        };
+
+        var summary = await _engine.ExecuteAsync(new BatchJobExecutionRequest<int, long>
+        {
+            Job = job,
+            RunId = "run-observer-failure-after-completion",
+        });
+
+        summary.Status.Should().Be(JobCompletionStatus.Failed);
+        summary.Reason.Should().Be("Наблюдатель выполнения завершился исключением.");
+        summary.Exception.Should().NotBeNull();
+        summary.Exception!.GetType().Name.Should().Be("BatchJobObserverException");
+        summary.ProcessedBatchCount.Should().Be(1);
+        summary.LastPersistedCheckpoint.Should().NotBeNull();
+        summary.LastPersistedCheckpoint!.Value.Should().Be(77L);
+        summary.LastPersistedCheckpoint.SequenceNumber.Should().Be(1);
+
+        checkpointStore.SaveCallCount.Should().Be(1);
+        observer.Events.OfType<BatchCompletedEvent<long>>().Should().ContainSingle();
+        observer.Events.OfType<CheckpointSavedEvent<long>>().Should().BeEmpty();
+        observer.Events.OfType<JobCompletedEvent<long>>().Should().ContainSingle();
     }
 
     [Fact]
