@@ -1,5 +1,6 @@
 using BatchFlow.Abstractions.Checkpoints;
 using BatchFlow.Abstractions.Execution;
+using BatchFlow.Abstractions.Failures;
 using BatchFlow.Abstractions.Processing;
 using BatchFlow.Abstractions.Results;
 
@@ -25,6 +26,13 @@ public interface IResumableBatchJobBuilder<TItem, TCheckpoint>
     /// <param name="degreeOfParallelism">Положительное количество конкурентных обработчиков.</param>
     /// <returns>Текущую стадию builder для продолжения настройки.</returns>
     IResumableBatchJobBuilder<TItem, TCheckpoint> WithDegreeOfParallelism(int degreeOfParallelism);
+
+    /// <summary>
+    /// Подключает стратегию обработки сбоев, которую runtime будет использовать для item- и batch-обработки.
+    /// </summary>
+    /// <param name="failurePolicy">Политика обработки ошибок.</param>
+    /// <returns>Текущую стадию builder для продолжения настройки.</returns>
+    IResumableBatchJobBuilder<TItem, TCheckpoint> WithFailurePolicy(IFailurePolicy<TItem, TCheckpoint> failurePolicy);
 
     /// <summary>
     /// Подключает хранилище контрольных точек, используя имя задачи как идентификатор потока checkpoint-данных.

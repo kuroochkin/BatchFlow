@@ -51,7 +51,7 @@ public sealed record BatchJobDefinition<TItem, TCheckpoint>
     public ICheckpointStore<TCheckpoint>? CheckpointStore { get; init; }
 
     /// <summary>
-    /// Политик обработки ошибок, если она задана.
+    /// Политика обработки ошибок, если она задана.
     /// </summary>
     public IFailurePolicy<TItem, TCheckpoint>? FailurePolicy { get; init; }
 

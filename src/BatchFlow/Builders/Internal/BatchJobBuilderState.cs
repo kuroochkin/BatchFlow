@@ -1,4 +1,5 @@
 using BatchFlow.Abstractions.Checkpoints;
+using BatchFlow.Abstractions.Failures;
 using BatchFlow.Abstractions.Sources;
 using BatchFlow.Core.Processing;
 
@@ -17,6 +18,8 @@ internal sealed record BatchJobBuilderState<TItem, TCheckpoint>
     public string? CheckpointId { get; init; }
 
     public ICheckpointStore<TCheckpoint>? CheckpointStore { get; init; }
+
+    public IFailurePolicy<TItem, TCheckpoint>? FailurePolicy { get; init; }
 
     public BatchJobProcessingMode<TItem, TCheckpoint>? ProcessingMode { get; init; }
 }
