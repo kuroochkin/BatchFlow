@@ -27,6 +27,9 @@
 - `BatchFlow.Extensions.Diagnostics`
   - метрики и tracing поверх runtime;
   - зависит от `BatchFlow.Core`.
+- `BatchFlow.Postgres`
+  - PostgreSQL-адаптеры для источников данных и хранения контрольных точек;
+  - зависит от `BatchFlow.Abstractions`, `BatchFlow.Core`, `BatchFlow` и `Npgsql`.
 - `BatchFlow.Testing`
   - тестовые реализации, fake-адаптеры и вспомогательные утилиты для сценариев библиотеки;
   - зависит от `BatchFlow.Core` и `BatchFlow.Abstractions`.
@@ -39,3 +42,4 @@
 4. Все интеграционные пакеты строятся поверх `BatchFlow.Core`, а не наоборот.
 5. Адаптеры источников данных и checkpoint store должны жить в отдельных пакетах и ссылаться только на необходимые уровни ядра.
 6. Тестовые проекты в `tests` должны ссылаться только на те проекты, которые они реально проверяют.
+7. `BatchFlow.Postgres` отвечает только за PostgreSQL-специфичную интеграцию и не должен тянуть в себя EF Core, DI, logging и runtime-логику, не связанную с адаптером.
