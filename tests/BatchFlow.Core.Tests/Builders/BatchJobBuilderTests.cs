@@ -8,6 +8,7 @@ using BatchFlow.Core.Execution.Models;
 using BatchFlow.Core.Jobs;
 using BatchFlow.Core.Processing;
 using BatchFlow.Testing.Checkpoints;
+using BatchFlow.Testing.Observability;
 using BatchFlow.Testing.Processing;
 using BatchFlow.Testing.Sources;
 using FluentAssertions;
@@ -108,6 +109,47 @@ public sealed class BatchJobBuilderTests
             CancellationToken.None);
 
         result.Reason.Should().Be("value:7");
+    }
+
+    [Fact]
+    public void Build_should_include_registered_observers_in_registration_order()
+    {
+        var firstObserver = new RecordingExecutionObserver<long>();
+        var secondObserver = new RecordingExecutionObserver<long>();
+
+        var job = BatchJob
+            .Named("observer-order")
+            .From(new DelegateBatchSource<int, long>((_, _) => EmptyBatches<int, long>()))
+            .WithObserver(firstObserver)
+            .WithObservers(secondObserver)
+            .ProcessEach((_, _, _) => new ValueTask<ProcessingResult>(ProcessingResult.Success()))
+            .Build();
+
+        job.Observers.Should().Equal(firstObserver, secondObserver);
+    }
+
+    [Fact]
+    public async Task RunAsync_should_publish_runtime_events_to_observer_registered_via_builder()
+    {
+        var eventTypes = new List<Type>();
+
+        var summary = await BatchJob
+            .Named("observer-run")
+            .From(new NonResumableDataSource<int>([1, 2]))
+            .WithBatchSize(2)
+            .WithObserver((@event, _) =>
+            {
+                eventTypes.Add(@event.GetType());
+                return ValueTask.CompletedTask;
+            })
+            .RunEachAsync((_, _, _) => new ValueTask<ProcessingResult>(ProcessingResult.Success()));
+
+        summary.Status.Should().Be(JobCompletionStatus.Succeeded);
+        eventTypes.Should().Equal(
+            typeof(JobStartedEvent<NoCheckpoint>),
+            typeof(BatchStartedEvent<NoCheckpoint>),
+            typeof(BatchCompletedEvent<NoCheckpoint>),
+            typeof(JobCompletedEvent<NoCheckpoint>));
     }
 
     [Fact]
