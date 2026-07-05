@@ -1,5 +1,6 @@
 using BatchFlow.Abstractions.Checkpoints;
 using BatchFlow.Abstractions.Failures;
+using BatchFlow.Abstractions.Observability;
 using BatchFlow.Abstractions.Sources;
 using BatchFlow.Core.Processing;
 
@@ -28,4 +29,6 @@ internal sealed record BatchJobBuilderState<TItem, TCheckpoint>
     public BatchFailureTerminalAction? TerminalFailureAction { get; init; }
 
     public BatchJobProcessingMode<TItem, TCheckpoint>? ProcessingMode { get; init; }
+
+    public IReadOnlyList<IExecutionObserver<TCheckpoint>> Observers { get; init; } = [];
 }
