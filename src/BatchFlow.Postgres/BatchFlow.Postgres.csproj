@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\BatchFlow.Abstractions\BatchFlow.Abstractions.csproj" />
+    <ProjectReference Include="..\BatchFlow.Core\BatchFlow.Core.csproj" />
+    <ProjectReference Include="..\BatchFlow\BatchFlow.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="10.0.3" />
+  </ItemGroup>
+</Project>
