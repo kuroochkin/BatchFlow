@@ -28,6 +28,7 @@ public sealed class BatchJobBuilderTests
             .From(source)
             .WithBatchSize(500)
             .WithDegreeOfParallelism(4)
+            .WithPrefetchCapacity(3)
             .WithCheckpoint("user-migration-v1", checkpointStore)
             .ProcessEach((item, _, _) => new ValueTask<ProcessingResult>(ProcessingResult.Success($"item:{item}")))
             .Build();
@@ -36,6 +37,7 @@ public sealed class BatchJobBuilderTests
         job.JobName.Should().Be("user-migration");
         job.BatchSize.Should().Be(500);
         job.DegreeOfParallelism.Should().Be(4);
+        job.PrefetchCapacity.Should().Be(3);
         job.CheckpointId.Should().Be("user-migration-v1");
         job.CheckpointStore.Should().BeSameAs(checkpointStore);
         job.Source.Should().BeSameAs(source);
@@ -61,6 +63,7 @@ public sealed class BatchJobBuilderTests
         job.JobName.Should().Be("catalog-sync");
         job.BatchSize.Should().Be(100);
         job.DegreeOfParallelism.Should().Be(1);
+        job.PrefetchCapacity.Should().Be(1);
         job.CheckpointStore.Should().BeNull();
         job.CheckpointId.Should().BeNull();
 
@@ -93,6 +96,7 @@ public sealed class BatchJobBuilderTests
         job.JobName.Should().Be("file-import");
         job.BatchSize.Should().Be(25);
         job.DegreeOfParallelism.Should().Be(2);
+        job.PrefetchCapacity.Should().Be(1);
         job.CheckpointStore.Should().BeNull();
         job.CheckpointId.Should().BeNull();
         job.Source.SupportsResume.Should().BeFalse();
@@ -134,6 +138,17 @@ public sealed class BatchJobBuilderTests
         var builder = BatchJob.Named("job").From(source);
 
         Action action = () => builder.WithDegreeOfParallelism(0);
+
+        action.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void WithPrefetchCapacity_should_throw_when_value_is_not_positive()
+    {
+        var source = new DelegateBatchSource<int, long>((_, _) => EmptyBatches<int, long>());
+        var builder = BatchJob.Named("job").From(source);
+
+        Action action = () => builder.WithPrefetchCapacity(0);
 
         action.Should().Throw<ArgumentOutOfRangeException>();
     }

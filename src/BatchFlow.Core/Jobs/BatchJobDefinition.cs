@@ -46,6 +46,13 @@ public sealed record BatchJobDefinition<TItem, TCheckpoint>
     public int DegreeOfParallelism { get; init; } = 1;
 
     /// <summary>
+    /// Количество пакетов, которое runtime может предварительно прочитать и удерживать
+    /// в ограниченной очереди между чтением и обработкой.
+    /// Значение должно быть положительным и используется для организации backpressure.
+    /// </summary>
+    public int PrefetchCapacity { get; init; } = 1;
+
+    /// <summary>
     /// Хранилище контрольных точек, если задача должна сохранять прогресс.
     /// </summary>
     public ICheckpointStore<TCheckpoint>? CheckpointStore { get; init; }

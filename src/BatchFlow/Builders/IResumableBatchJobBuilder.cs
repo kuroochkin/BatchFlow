@@ -28,6 +28,14 @@ public interface IResumableBatchJobBuilder<TItem, TCheckpoint>
     IResumableBatchJobBuilder<TItem, TCheckpoint> WithDegreeOfParallelism(int degreeOfParallelism);
 
     /// <summary>
+    /// Задает емкость bounded queue между чтением и обработкой.
+    /// Значение определяет, сколько пакетов runtime может заранее прочитать, не допуская неконтролируемого роста памяти.
+    /// </summary>
+    /// <param name="prefetchCapacity">Положительное количество пакетов, которые можно буферизовать перед обработкой.</param>
+    /// <returns>Текущую стадию builder для продолжения настройки.</returns>
+    IResumableBatchJobBuilder<TItem, TCheckpoint> WithPrefetchCapacity(int prefetchCapacity);
+
+    /// <summary>
     /// Подключает стратегию обработки сбоев, которую runtime будет использовать для item- и batch-обработки.
     /// </summary>
     /// <param name="failurePolicy">Политика обработки ошибок.</param>

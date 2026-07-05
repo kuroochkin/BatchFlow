@@ -15,6 +15,8 @@ internal sealed record BatchJobBuilderState<TItem, TCheckpoint>
 
     public int DegreeOfParallelism { get; init; } = 1;
 
+    public int PrefetchCapacity { get; init; } = 1;
+
     public string? CheckpointId { get; init; }
 
     public ICheckpointStore<TCheckpoint>? CheckpointStore { get; init; }

@@ -34,6 +34,7 @@ internal sealed class BatchJobBuilder<TItem, TCheckpoint> :
             ProcessingMode = _state.ProcessingMode!,
             BatchSize = _state.BatchSize,
             DegreeOfParallelism = _state.DegreeOfParallelism,
+            PrefetchCapacity = _state.PrefetchCapacity,
             CheckpointStore = _state.CheckpointStore,
             FailurePolicy = BuildFailurePolicy(),
         };
@@ -62,6 +63,18 @@ internal sealed class BatchJobBuilder<TItem, TCheckpoint> :
 
     IResumableBatchJobReadyBuilder<TItem, TCheckpoint> IResumableBatchJobReadyBuilder<TItem, TCheckpoint>.WithDegreeOfParallelism(int degreeOfParallelism) =>
         WithDegreeOfParallelismCore(degreeOfParallelism);
+
+    IBatchJobBuilder<TItem, TCheckpoint> IBatchJobBuilder<TItem, TCheckpoint>.WithPrefetchCapacity(int prefetchCapacity) =>
+        WithPrefetchCapacityCore(prefetchCapacity);
+
+    IResumableBatchJobBuilder<TItem, TCheckpoint> IResumableBatchJobBuilder<TItem, TCheckpoint>.WithPrefetchCapacity(int prefetchCapacity) =>
+        WithPrefetchCapacityCore(prefetchCapacity);
+
+    IBatchJobReadyBuilder<TItem, TCheckpoint> IBatchJobReadyBuilder<TItem, TCheckpoint>.WithPrefetchCapacity(int prefetchCapacity) =>
+        WithPrefetchCapacityCore(prefetchCapacity);
+
+    IResumableBatchJobReadyBuilder<TItem, TCheckpoint> IResumableBatchJobReadyBuilder<TItem, TCheckpoint>.WithPrefetchCapacity(int prefetchCapacity) =>
+        WithPrefetchCapacityCore(prefetchCapacity);
 
     IBatchJobBuilder<TItem, TCheckpoint> IBatchJobBuilder<TItem, TCheckpoint>.WithFailurePolicy(
         IFailurePolicy<TItem, TCheckpoint> failurePolicy) =>
@@ -232,6 +245,12 @@ internal sealed class BatchJobBuilder<TItem, TCheckpoint> :
     {
         BatchJobBuilderValidation.ValidateDegreeOfParallelism(degreeOfParallelism);
         return WithState(_state with { DegreeOfParallelism = degreeOfParallelism });
+    }
+
+    private BatchJobBuilder<TItem, TCheckpoint> WithPrefetchCapacityCore(int prefetchCapacity)
+    {
+        BatchJobBuilderValidation.ValidatePrefetchCapacity(prefetchCapacity);
+        return WithState(_state with { PrefetchCapacity = prefetchCapacity });
     }
 
     private BatchJobBuilder<TItem, TCheckpoint> WithFailurePolicyCore(
