@@ -459,6 +459,297 @@ public sealed class BatchJobExecutionEngineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_WithParallelBatchProcessing_RunsMultipleBatchesConcurrently()
+    {
+        var firstTwoBatchesStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowFirstTwoBatchesToComplete = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var startedBatchCount = 0;
+        var currentConcurrency = 0;
+        var maxConcurrency = 0;
+
+        var job = new BatchJobDefinition<int, long>
+        {
+            JobName = "parallel-batch-processing",
+            Source = new DelegateBatchSource<int, long>((_, _) => ToAsyncEnumerable(
+                CreateBatch([1], 301L, metadata: "page-301"),
+                CreateBatch([2], 302L, metadata: "page-302"),
+                CreateBatch([3], 303L, metadata: "page-303"))),
+            BatchSize = 1,
+            DegreeOfParallelism = 2,
+            PrefetchCapacity = 2,
+            ProcessingMode = new BatchProcessorRegistration<int, long>(
+                new DelegateBatchProcessor<int, long>(async (_, context, token) =>
+                {
+                    var concurrency = Interlocked.Increment(ref currentConcurrency);
+                    UpdateMax(ref maxConcurrency, concurrency);
+
+                    try
+                    {
+                        if (context.BatchSequence <= 2)
+                        {
+                            if (Interlocked.Increment(ref startedBatchCount) == 2)
+                            {
+                                firstTwoBatchesStarted.TrySetResult(true);
+                            }
+
+                            await allowFirstTwoBatchesToComplete.Task.WaitAsync(token);
+                        }
+
+                        return BatchProcessingResult.AllSucceeded(context.ItemCount);
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref currentConcurrency);
+                    }
+                })),
+        };
+
+        var executionTask = _engine.ExecuteAsync(new BatchJobExecutionRequest<int, long>
+        {
+            Job = job,
+            RunId = "run-parallel-batch-processing",
+        }).AsTask();
+
+        await firstTwoBatchesStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        maxConcurrency.Should().BeGreaterOrEqualTo(2);
+
+        allowFirstTwoBatchesToComplete.TrySetResult(true);
+
+        var summary = await executionTask;
+
+        summary.Status.Should().Be(JobCompletionStatus.Succeeded);
+        summary.ProcessedBatchCount.Should().Be(3);
+        summary.SucceededItemCount.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithParallelBatchProcessingAndCheckpointStore_CommitsCompletedBatchesInSequenceOrder()
+    {
+        var checkpointStore = new InMemoryCheckpointStore<long>();
+        var observer = new RecordingExecutionObserver<long>();
+        var secondBatchCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowFirstBatchToComplete = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var job = new BatchJobDefinition<int, long>
+        {
+            JobName = "parallel-checkpoint-barrier",
+            Source = new DelegateBatchSource<int, long>((_, _) => ToAsyncEnumerable(
+                CreateBatch([1], 401L, metadata: "page-401"),
+                CreateBatch([2], 402L, metadata: "page-402"))),
+            BatchSize = 1,
+            DegreeOfParallelism = 2,
+            PrefetchCapacity = 2,
+            CheckpointStore = checkpointStore,
+            Observers = [observer],
+            ProcessingMode = new BatchProcessorRegistration<int, long>(
+                new DelegateBatchProcessor<int, long>(async (_, context, token) =>
+                {
+                    if (context.BatchSequence == 1)
+                    {
+                        await allowFirstBatchToComplete.Task.WaitAsync(token);
+                    }
+                    else if (context.BatchSequence == 2)
+                    {
+                        secondBatchCompleted.TrySetResult(true);
+                    }
+
+                    return BatchProcessingResult.AllSucceeded(context.ItemCount);
+                })),
+        };
+
+        var executionTask = _engine.ExecuteAsync(new BatchJobExecutionRequest<int, long>
+        {
+            Job = job,
+            RunId = "run-parallel-checkpoint-barrier",
+        }).AsTask();
+
+        await secondBatchCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        checkpointStore.SaveCallCount.Should().Be(0);
+        observer.Events.OfType<BatchCompletedEvent<long>>().Should().BeEmpty();
+        observer.Events.OfType<CheckpointSavedEvent<long>>().Should().BeEmpty();
+
+        allowFirstBatchToComplete.TrySetResult(true);
+
+        var summary = await executionTask;
+
+        summary.Status.Should().Be(JobCompletionStatus.Succeeded);
+        checkpointStore.SaveCallCount.Should().Be(2);
+        checkpointStore.SavedCheckpoints.Select(checkpoint => checkpoint.SequenceNumber).Should().Equal(1, 2);
+        observer.Events.OfType<BatchCompletedEvent<long>>().Select(@event => @event.BatchSequence).Should().Equal(1, 2);
+        observer.Events.OfType<CheckpointSavedEvent<long>>().Select(@event => @event.Checkpoint.SequenceNumber).Should().Equal(1, 2);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenParallelBatchWorkerFails_CancelsOtherInFlightBatchWorkers()
+    {
+        var firstBatchStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstBatchCancelled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var job = new BatchJobDefinition<int, long>
+        {
+            JobName = "parallel-batch-fail-fast",
+            Source = new DelegateBatchSource<int, long>((_, _) => ToAsyncEnumerable(
+                CreateBatch([1], 501L, metadata: "page-501"),
+                CreateBatch([2], 502L, metadata: "page-502"))),
+            BatchSize = 1,
+            DegreeOfParallelism = 2,
+            PrefetchCapacity = 2,
+            ProcessingMode = new BatchProcessorRegistration<int, long>(
+                new DelegateBatchProcessor<int, long>(async (_, context, token) =>
+                {
+                    if (context.BatchSequence == 1)
+                    {
+                        firstBatchStarted.TrySetResult(true);
+
+                        try
+                        {
+                            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                        }
+                        catch (OperationCanceledException) when (token.IsCancellationRequested)
+                        {
+                            firstBatchCancelled.TrySetResult(true);
+                            throw;
+                        }
+
+                        throw new InvalidOperationException("Задержка должна завершиться только через отмену.");
+                    }
+
+                    await firstBatchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    throw new InvalidOperationException("parallel batch failure");
+                })),
+        };
+
+        var summary = await _engine.ExecuteAsync(new BatchJobExecutionRequest<int, long>
+        {
+            Job = job,
+            RunId = "run-parallel-batch-fail-fast",
+        });
+
+        await firstBatchCancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        summary.Status.Should().Be(JobCompletionStatus.Failed);
+        summary.ProcessedBatchCount.Should().Be(0);
+        summary.Exception.Should().BeOfType<InvalidOperationException>();
+        summary.Exception!.Message.Should().Be("parallel batch failure");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithParallelItemProcessing_RunsMultipleItemsConcurrentlyWithinSingleBatch()
+    {
+        var firstTwoItemsStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowFirstTwoItemsToComplete = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var startedItemCount = 0;
+        var currentConcurrency = 0;
+        var maxConcurrency = 0;
+
+        var job = new BatchJobDefinition<int, long>
+        {
+            JobName = "parallel-item-processing",
+            Source = new DelegateBatchSource<int, long>((_, _) => ToAsyncEnumerable(
+                CreateBatch([1, 2, 3], 601L, metadata: "page-601"))),
+            BatchSize = 3,
+            DegreeOfParallelism = 2,
+            ProcessingMode = new ItemProcessorRegistration<int, long>(
+                new DelegateItemProcessor<int, long>(async (item, _, token) =>
+                {
+                    var concurrency = Interlocked.Increment(ref currentConcurrency);
+                    UpdateMax(ref maxConcurrency, concurrency);
+
+                    try
+                    {
+                        if (item <= 2)
+                        {
+                            if (Interlocked.Increment(ref startedItemCount) == 2)
+                            {
+                                firstTwoItemsStarted.TrySetResult(true);
+                            }
+
+                            await allowFirstTwoItemsToComplete.Task.WaitAsync(token);
+                        }
+
+                        return ProcessingResult.Success($"processed-{item}");
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref currentConcurrency);
+                    }
+                })),
+        };
+
+        var executionTask = _engine.ExecuteAsync(new BatchJobExecutionRequest<int, long>
+        {
+            Job = job,
+            RunId = "run-parallel-item-processing",
+        }).AsTask();
+
+        await firstTwoItemsStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        maxConcurrency.Should().BeGreaterOrEqualTo(2);
+
+        allowFirstTwoItemsToComplete.TrySetResult(true);
+
+        var summary = await executionTask;
+
+        summary.Status.Should().Be(JobCompletionStatus.Succeeded);
+        summary.ProcessedBatchCount.Should().Be(1);
+        summary.SucceededItemCount.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenParallelItemWorkerFails_CancelsOtherInFlightItems()
+    {
+        var firstItemStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstItemCancelled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var job = new BatchJobDefinition<int, long>
+        {
+            JobName = "parallel-item-fail-fast",
+            Source = new DelegateBatchSource<int, long>((_, _) => ToAsyncEnumerable(
+                CreateBatch([1, 2], 701L, metadata: "page-701"))),
+            BatchSize = 2,
+            DegreeOfParallelism = 2,
+            ProcessingMode = new ItemProcessorRegistration<int, long>(
+                new DelegateItemProcessor<int, long>(async (item, _, token) =>
+                {
+                    if (item == 1)
+                    {
+                        firstItemStarted.TrySetResult(true);
+
+                        try
+                        {
+                            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                        }
+                        catch (OperationCanceledException) when (token.IsCancellationRequested)
+                        {
+                            firstItemCancelled.TrySetResult(true);
+                            throw;
+                        }
+
+                        throw new InvalidOperationException("Задержка должна завершиться только через отмену.");
+                    }
+
+                    await firstItemStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    throw new InvalidOperationException("parallel item failure");
+                })),
+        };
+
+        var summary = await _engine.ExecuteAsync(new BatchJobExecutionRequest<int, long>
+        {
+            Job = job,
+            RunId = "run-parallel-item-fail-fast",
+        });
+
+        await firstItemCancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        summary.Status.Should().Be(JobCompletionStatus.Failed);
+        summary.ProcessedBatchCount.Should().Be(0);
+        summary.Exception.Should().BeOfType<InvalidOperationException>();
+        summary.Exception!.Message.Should().Be("parallel item failure");
+    }
+
+    [Fact]
     public async Task ExecuteAsync_WhenBatchProcessingFails_DoesNotSaveCheckpoint()
     {
         var checkpointStore = new InMemoryCheckpointStore<long>();
@@ -642,6 +933,24 @@ public sealed class BatchJobExecutionEngineTests
             }
 
             await Task.Delay(10);
+        }
+    }
+
+    private static void UpdateMax(ref int target, int candidate)
+    {
+        while (true)
+        {
+            var snapshot = Volatile.Read(ref target);
+
+            if (candidate <= snapshot)
+            {
+                return;
+            }
+
+            if (Interlocked.CompareExchange(ref target, candidate, snapshot) == snapshot)
+            {
+                return;
+            }
         }
     }
 

@@ -20,7 +20,24 @@ var orders = new List<Order>
     new(9, "A-1009", 18_750m),
     new(10, "A-10010", 4_200m),
     new(11, "A-10011", 27_300m),
-    new(12, "A-10012", 7_800m),
+    new(13, "A-10012", 7_800m),
+    new(14, "A-10012", 7_800m),
+    new(15, "A-10012", 7_800m),
+    new(16, "A-10012", 7_800m),
+    new(17, "A-10012", 7_800m),
+    new(18, "A-10012", 7_800m),
+    new(19, "A-10012", 7_800m),
+    new(20, "A-10012", 7_800m),
+    new(21, "A-10012", 7_800m),
+    new(22, "A-10012", 7_800m),
+    new(23, "A-10012", 7_800m),
+    new(24, "A-10012", 7_800m),
+    new(25, "A-10012", 7_800m),
+    new(26, "A-10012", 7_800m),
+    new(27, "A-10012", 7_800m),
+    new(28, "A-10012", 7_800m),
+    new(29, "A-10012", 7_800m),
+    new(30, "A-10012", 7_800m),
 };
 
 var source = new OrdersBatchSource(orders);
@@ -41,8 +58,8 @@ checkpointStore.Seed(
 var summary = await BatchJob
     .Named("orders-demo")
     .From(source)
-    .WithBatchSize(7)
-    .WithDegreeOfParallelism(1)
+    .WithBatchSize(10)
+    .WithDegreeOfParallelism(2)
     .WithPrefetchCapacity(2)
     .WithCheckpoint("orders-demo-v1", checkpointStore)
     .WithRetry(2, TimeSpan.FromMilliseconds(150))

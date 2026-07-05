@@ -5,7 +5,7 @@ using BatchFlow.Core.Jobs;
 namespace BatchFlow.Core.Execution.Buffering;
 
 /// <summary>
-/// Представляет канал между чтением batch-ей из источника и их обработкой.
+/// Представляет bounded channel между чтением batch-ей из источника и их дальнейшей обработкой.
 /// </summary>
 /// <typeparam name="TItem">Тип элементов внутри пакета.</typeparam>
 /// <typeparam name="TCheckpoint">Тип контрольной точки.</typeparam>
@@ -16,7 +16,7 @@ internal sealed class BufferedBatchChannel<TItem, TCheckpoint> : IAsyncDisposabl
     private bool _isCompleted;
 
     private BufferedBatchChannel(
-        ChannelReader<SourceBatch<TItem, TCheckpoint>> reader,
+        ChannelReader<BufferedSourceBatch<TItem, TCheckpoint>> reader,
         Task producerTask,
         CancellationTokenSource producerCancellationSource)
     {
@@ -26,9 +26,9 @@ internal sealed class BufferedBatchChannel<TItem, TCheckpoint> : IAsyncDisposabl
     }
 
     /// <summary>
-    /// Reader bounded channel-а, из которого consumer последовательно получает batch-и.
+    /// Reader bounded channel-а, из которого coordinator или worker-ы получают подготовленные batch-и.
     /// </summary>
-    public ChannelReader<SourceBatch<TItem, TCheckpoint>> Reader { get; }
+    public ChannelReader<BufferedSourceBatch<TItem, TCheckpoint>> Reader { get; }
 
     /// <summary>
     /// Запускает producer, который читает batch-и из источника и публикует их в bounded channel.
@@ -42,11 +42,11 @@ internal sealed class BufferedBatchChannel<TItem, TCheckpoint> : IAsyncDisposabl
         ArgumentNullException.ThrowIfNull(batches);
 
         var producerCancellationSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var channel = Channel.CreateBounded<SourceBatch<TItem, TCheckpoint>>(
+        var channel = Channel.CreateBounded<BufferedSourceBatch<TItem, TCheckpoint>>(
             new BoundedChannelOptions(job.PrefetchCapacity)
             {
                 FullMode = BoundedChannelFullMode.Wait,
-                SingleReader = true,
+                SingleReader = false,
                 SingleWriter = true,
                 AllowSynchronousContinuations = false,
             });
@@ -103,12 +103,13 @@ internal sealed class BufferedBatchChannel<TItem, TCheckpoint> : IAsyncDisposabl
 
     private static async Task ProduceAsync(
         IAsyncEnumerable<SourceBatch<TItem, TCheckpoint>> batches,
-        ChannelWriter<SourceBatch<TItem, TCheckpoint>> writer,
+        ChannelWriter<BufferedSourceBatch<TItem, TCheckpoint>> writer,
         CancellationToken cancellationToken)
     {
         try
         {
             await using var enumerator = batches.GetAsyncEnumerator(cancellationToken);
+            var sequence = 0L;
 
             while (await writer.WaitToWriteAsync(cancellationToken).ConfigureAwait(false))
             {
@@ -117,11 +118,15 @@ internal sealed class BufferedBatchChannel<TItem, TCheckpoint> : IAsyncDisposabl
                     break;
                 }
 
-                var batch = enumerator.Current;
-
-                if (!writer.TryWrite(batch))
+                var bufferedBatch = new BufferedSourceBatch<TItem, TCheckpoint>
                 {
-                    await writer.WriteAsync(batch, cancellationToken).ConfigureAwait(false);
+                    Sequence = ++sequence,
+                    Batch = enumerator.Current,
+                };
+
+                if (!writer.TryWrite(bufferedBatch))
+                {
+                    await writer.WriteAsync(bufferedBatch, cancellationToken).ConfigureAwait(false);
                 }
             }
 
