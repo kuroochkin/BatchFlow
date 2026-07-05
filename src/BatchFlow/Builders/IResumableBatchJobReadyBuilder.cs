@@ -36,6 +36,20 @@ public interface IResumableBatchJobReadyBuilder<TItem, TCheckpoint>
     IResumableBatchJobReadyBuilder<TItem, TCheckpoint> WithFailurePolicy(IFailurePolicy<TItem, TCheckpoint> failurePolicy);
 
     /// <summary>
+    /// Настраивает встроенную retry-модель runtime и заменяет ранее заданные built-in параметры повторных попыток.
+    /// </summary>
+    /// <param name="options">Параметры встроенной retry-стратегии.</param>
+    /// <returns>Текущую стадию builder для продолжения настройки.</returns>
+    IResumableBatchJobReadyBuilder<TItem, TCheckpoint> WithRetryOptions(BatchRetryOptions options);
+
+    /// <summary>
+    /// Задает terminal-поведение встроенной модели обработки ошибок после исчерпания retry.
+    /// </summary>
+    /// <param name="terminalAction">Конечное действие runtime после неуспешной обработки.</param>
+    /// <returns>Текущую стадию builder для продолжения настройки.</returns>
+    IResumableBatchJobReadyBuilder<TItem, TCheckpoint> WithTerminalFailureAction(BatchFailureTerminalAction terminalAction);
+
+    /// <summary>
     /// Подключает хранилище контрольных точек, используя имя задачи как идентификатор потока checkpoint-данных.
     /// </summary>
     /// <param name="checkpointStore">Хранилище контрольных точек.</param>

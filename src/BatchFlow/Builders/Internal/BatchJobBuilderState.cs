@@ -21,5 +21,9 @@ internal sealed record BatchJobBuilderState<TItem, TCheckpoint>
 
     public IFailurePolicy<TItem, TCheckpoint>? FailurePolicy { get; init; }
 
+    public BatchRetryOptions? RetryOptions { get; init; }
+
+    public BatchFailureTerminalAction? TerminalFailureAction { get; init; }
+
     public BatchJobProcessingMode<TItem, TCheckpoint>? ProcessingMode { get; init; }
 }

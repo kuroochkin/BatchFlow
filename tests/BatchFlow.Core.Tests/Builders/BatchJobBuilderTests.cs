@@ -201,6 +201,74 @@ public sealed class BatchJobBuilderTests
     }
 
     [Fact]
+    public async Task Build_should_attach_skip_terminal_action_when_with_skip_on_failure_is_used()
+    {
+        var source = new DelegateBatchSource<int, long>((_, _) => EmptyBatches<int, long>());
+
+        var job = BatchJob
+            .Named("skip-enabled-job")
+            .From(source)
+            .WithSkipOnFailure()
+            .ProcessEach((_, _, _) => new ValueTask<ProcessingResult>(ProcessingResult.Success()))
+            .Build();
+
+        job.FailurePolicy.Should().BeOfType<FixedRetryFailurePolicy<int, long>>();
+
+        var decision = await job.FailurePolicy!.DecideAsync(
+            CreateFailureContext<long>(attempt: 1, new InvalidOperationException("permanent failure")),
+            CancellationToken.None);
+
+        decision.Action.Should().Be(FailureAction.Skip);
+        decision.Reason.Should().Be("Повторные попытки обработки исчерпаны.");
+    }
+
+    [Fact]
+    public async Task Build_should_preserve_retry_when_with_skip_on_failure_is_applied_after_with_retry()
+    {
+        var source = new DelegateBatchSource<int, long>((_, _) => EmptyBatches<int, long>());
+
+        var job = BatchJob
+            .Named("retry-then-skip")
+            .From(source)
+            .WithRetry(2, TimeSpan.FromMilliseconds(10))
+            .WithSkipOnFailure()
+            .ProcessEach((_, _, _) => new ValueTask<ProcessingResult>(ProcessingResult.Success()))
+            .Build();
+
+        var retryDecision = await job.FailurePolicy!.DecideAsync(
+            CreateFailureContext<long>(attempt: 1, new InvalidOperationException("temporary failure")),
+            CancellationToken.None);
+
+        var terminalDecision = await job.FailurePolicy!.DecideAsync(
+            CreateFailureContext<long>(attempt: 3, new InvalidOperationException("permanent failure")),
+            CancellationToken.None);
+
+        retryDecision.Action.Should().Be(FailureAction.Retry);
+        retryDecision.Delay.Should().Be(TimeSpan.FromMilliseconds(10));
+        terminalDecision.Action.Should().Be(FailureAction.Skip);
+    }
+
+    [Fact]
+    public async Task Build_should_preserve_skip_when_with_retry_is_applied_after_with_skip_on_failure()
+    {
+        var source = new DelegateBatchSource<int, long>((_, _) => EmptyBatches<int, long>());
+
+        var job = BatchJob
+            .Named("skip-then-retry")
+            .From(source)
+            .WithSkipOnFailure()
+            .WithRetry(2, TimeSpan.FromMilliseconds(10))
+            .ProcessEach((_, _, _) => new ValueTask<ProcessingResult>(ProcessingResult.Success()))
+            .Build();
+
+        var terminalDecision = await job.FailurePolicy!.DecideAsync(
+            CreateFailureContext<long>(attempt: 3, new InvalidOperationException("permanent failure")),
+            CancellationToken.None);
+
+        terminalDecision.Action.Should().Be(FailureAction.Skip);
+    }
+
+    [Fact]
     public async Task RunAsync_should_execute_ready_builder_without_explicit_engine()
     {
         var processedItems = new List<int>();
@@ -307,6 +375,55 @@ public sealed class BatchJobBuilderTests
         summary.ProcessedBatchCount.Should().Be(1);
         summary.SucceededItemCount.Should().Be(1);
         summary.SkippedItemCount.Should().Be(0);
+        attempts.Should().Equal(1, 2, 3);
+    }
+
+    [Fact]
+    public async Task RunEachAsync_should_skip_failed_item_when_skip_on_failure_is_configured()
+    {
+        var summary = await BatchJob
+            .Named("run-each-terminal-skip")
+            .From(new NonResumableDataSource<int>([1, 2, 3]))
+            .WithBatchSize(2)
+            .WithSkipOnFailure()
+            .RunEachAsync((item, _, _) =>
+            {
+                if (item == 2)
+                {
+                    throw new InvalidOperationException("skip-second-item");
+                }
+
+                return new ValueTask<ProcessingResult>(ProcessingResult.Success());
+            });
+
+        summary.Status.Should().Be(JobCompletionStatus.CompletedWithSkips);
+        summary.ProcessedBatchCount.Should().Be(2);
+        summary.SucceededItemCount.Should().Be(2);
+        summary.SkippedItemCount.Should().Be(1);
+        summary.Exception.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task RunEachAsync_should_preserve_skip_when_with_retry_is_applied_after_skip_configuration()
+    {
+        var attempts = new List<int>();
+
+        var summary = await BatchJob
+            .Named("run-each-retry-then-terminal-skip")
+            .From(new NonResumableDataSource<int>([1]))
+            .WithSkipOnFailure()
+            .WithRetry(2, TimeSpan.Zero)
+            .RunEachAsync((item, context, _) =>
+            {
+                attempts.Add(context.Attempt);
+                return ValueTask.FromException<ProcessingResult>(
+                    new InvalidOperationException($"temporary failure for item {item}"));
+            });
+
+        summary.Status.Should().Be(JobCompletionStatus.CompletedWithSkips);
+        summary.ProcessedBatchCount.Should().Be(1);
+        summary.SucceededItemCount.Should().Be(0);
+        summary.SkippedItemCount.Should().Be(1);
         attempts.Should().Equal(1, 2, 3);
     }
 
@@ -459,6 +576,31 @@ public sealed class BatchJobBuilderTests
         summary.SucceededItemCount.Should().Be(2);
         summary.SkippedItemCount.Should().Be(0);
         attempts.Should().Equal(1, 2, 3);
+    }
+
+    [Fact]
+    public async Task RunBatchAsync_should_skip_failed_batch_when_skip_on_failure_is_configured()
+    {
+        var summary = await BatchJob
+            .Named("run-batch-terminal-skip")
+            .From(new NonResumableDataSource<int>([1, 2, 3]))
+            .WithBatchSize(2)
+            .WithSkipOnFailure()
+            .RunBatchAsync((items, _, _) =>
+            {
+                if (items.Count == 2)
+                {
+                    throw new InvalidOperationException("skip-first-batch");
+                }
+
+                return new ValueTask<BatchProcessingResult>(BatchProcessingResult.AllSucceeded(items.Count));
+            });
+
+        summary.Status.Should().Be(JobCompletionStatus.CompletedWithSkips);
+        summary.ProcessedBatchCount.Should().Be(2);
+        summary.SucceededItemCount.Should().Be(1);
+        summary.SkippedItemCount.Should().Be(2);
+        summary.Exception.Should().BeNull();
     }
 
     [Fact]

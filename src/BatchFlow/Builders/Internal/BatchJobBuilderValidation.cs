@@ -29,6 +29,32 @@ internal static class BatchJobBuilderValidation
         }
     }
 
+    public static void ValidateRetryOptions(BatchRetryOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (options.MaxRetryAttempts < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), options.MaxRetryAttempts,
+                "Количество повторных попыток не может быть отрицательным.");
+        }
+
+        if (options.Delay < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), options.Delay,
+                "Задержка между повторными попытками не может быть отрицательной.");
+        }
+    }
+
+    public static void ValidateTerminalFailureAction(BatchFailureTerminalAction terminalAction)
+    {
+        if (!Enum.IsDefined(terminalAction))
+        {
+            throw new ArgumentOutOfRangeException(nameof(terminalAction), terminalAction,
+                "Указано неизвестное terminal-действие встроенной политики ошибок.");
+        }
+    }
+
     public static string ValidateCheckpointId(string checkpointId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(checkpointId);

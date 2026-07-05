@@ -60,6 +60,43 @@ public sealed class FixedRetryFailurePolicyTests
         decision.Reason.Should().Be("Исключение не подпадает под встроенную стратегию повторных попыток.");
     }
 
+    [Fact]
+    public async Task DecideAsync_should_return_skip_when_retry_attempts_are_exhausted_and_terminal_action_is_skip()
+    {
+        var policy = new FixedRetryFailurePolicy<int, long>(
+            new BatchRetryOptions
+            {
+                MaxRetryAttempts = 1,
+            },
+            BatchFailureTerminalAction.Skip);
+
+        var decision = await policy.DecideAsync(
+            CreateFailureContext(attempt: 2, new InvalidOperationException("permanent failure")),
+            CancellationToken.None);
+
+        decision.Action.Should().Be(FailureAction.Skip);
+        decision.Reason.Should().Be("Повторные попытки обработки исчерпаны.");
+    }
+
+    [Fact]
+    public async Task DecideAsync_should_return_skip_when_exception_is_filtered_out_and_terminal_action_is_skip()
+    {
+        var policy = new FixedRetryFailurePolicy<int, long>(
+            new BatchRetryOptions
+            {
+                MaxRetryAttempts = 5,
+                ShouldHandle = exception => exception is TimeoutException,
+            },
+            BatchFailureTerminalAction.Skip);
+
+        var decision = await policy.DecideAsync(
+            CreateFailureContext(attempt: 1, new InvalidOperationException("non-transient failure")),
+            CancellationToken.None);
+
+        decision.Action.Should().Be(FailureAction.Skip);
+        decision.Reason.Should().Be("Исключение не подпадает под встроенную стратегию повторных попыток.");
+    }
+
     private static FailureContext<int, long> CreateFailureContext(int attempt, Exception exception) =>
         new()
         {

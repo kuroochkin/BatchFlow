@@ -35,7 +35,7 @@ internal sealed class BatchJobBuilder<TItem, TCheckpoint> :
             BatchSize = _state.BatchSize,
             DegreeOfParallelism = _state.DegreeOfParallelism,
             CheckpointStore = _state.CheckpointStore,
-            FailurePolicy = _state.FailurePolicy,
+            FailurePolicy = BuildFailurePolicy(),
         };
     }
 
@@ -67,17 +67,49 @@ internal sealed class BatchJobBuilder<TItem, TCheckpoint> :
         IFailurePolicy<TItem, TCheckpoint> failurePolicy) =>
         WithFailurePolicyCore(failurePolicy);
 
+    IBatchJobBuilder<TItem, TCheckpoint> IBatchJobBuilder<TItem, TCheckpoint>.WithRetryOptions(
+        BatchRetryOptions options) =>
+        WithRetryOptionsCore(options);
+
+    IBatchJobBuilder<TItem, TCheckpoint> IBatchJobBuilder<TItem, TCheckpoint>.WithTerminalFailureAction(
+        BatchFailureTerminalAction terminalAction) =>
+        WithTerminalFailureActionCore(terminalAction);
+
     IResumableBatchJobBuilder<TItem, TCheckpoint> IResumableBatchJobBuilder<TItem, TCheckpoint>.WithFailurePolicy(
         IFailurePolicy<TItem, TCheckpoint> failurePolicy) =>
         WithFailurePolicyCore(failurePolicy);
+
+    IResumableBatchJobBuilder<TItem, TCheckpoint> IResumableBatchJobBuilder<TItem, TCheckpoint>.WithRetryOptions(
+        BatchRetryOptions options) =>
+        WithRetryOptionsCore(options);
+
+    IResumableBatchJobBuilder<TItem, TCheckpoint> IResumableBatchJobBuilder<TItem, TCheckpoint>.WithTerminalFailureAction(
+        BatchFailureTerminalAction terminalAction) =>
+        WithTerminalFailureActionCore(terminalAction);
 
     IBatchJobReadyBuilder<TItem, TCheckpoint> IBatchJobReadyBuilder<TItem, TCheckpoint>.WithFailurePolicy(
         IFailurePolicy<TItem, TCheckpoint> failurePolicy) =>
         WithFailurePolicyCore(failurePolicy);
 
+    IBatchJobReadyBuilder<TItem, TCheckpoint> IBatchJobReadyBuilder<TItem, TCheckpoint>.WithRetryOptions(
+        BatchRetryOptions options) =>
+        WithRetryOptionsCore(options);
+
+    IBatchJobReadyBuilder<TItem, TCheckpoint> IBatchJobReadyBuilder<TItem, TCheckpoint>.WithTerminalFailureAction(
+        BatchFailureTerminalAction terminalAction) =>
+        WithTerminalFailureActionCore(terminalAction);
+
     IResumableBatchJobReadyBuilder<TItem, TCheckpoint> IResumableBatchJobReadyBuilder<TItem, TCheckpoint>.WithFailurePolicy(
         IFailurePolicy<TItem, TCheckpoint> failurePolicy) =>
         WithFailurePolicyCore(failurePolicy);
+
+    IResumableBatchJobReadyBuilder<TItem, TCheckpoint> IResumableBatchJobReadyBuilder<TItem, TCheckpoint>.WithRetryOptions(
+        BatchRetryOptions options) =>
+        WithRetryOptionsCore(options);
+
+    IResumableBatchJobReadyBuilder<TItem, TCheckpoint> IResumableBatchJobReadyBuilder<TItem, TCheckpoint>.WithTerminalFailureAction(
+        BatchFailureTerminalAction terminalAction) =>
+        WithTerminalFailureActionCore(terminalAction);
 
     IResumableBatchJobBuilder<TItem, TCheckpoint> IResumableBatchJobBuilder<TItem, TCheckpoint>.WithCheckpoint(ICheckpointStore<TCheckpoint> checkpointStore) =>
         WithCheckpointCore(checkpointStore, checkpointId: null);
@@ -206,7 +238,35 @@ internal sealed class BatchJobBuilder<TItem, TCheckpoint> :
         IFailurePolicy<TItem, TCheckpoint> failurePolicy)
     {
         ArgumentNullException.ThrowIfNull(failurePolicy);
-        return WithState(_state with { FailurePolicy = failurePolicy });
+        return WithState(_state with
+        {
+            FailurePolicy = failurePolicy,
+            RetryOptions = null,
+            TerminalFailureAction = null,
+        });
+    }
+
+    private BatchJobBuilder<TItem, TCheckpoint> WithRetryOptionsCore(BatchRetryOptions options)
+    {
+        BatchJobBuilderValidation.ValidateRetryOptions(options);
+
+        return WithState(_state with
+        {
+            FailurePolicy = null,
+            RetryOptions = options,
+        });
+    }
+
+    private BatchJobBuilder<TItem, TCheckpoint> WithTerminalFailureActionCore(
+        BatchFailureTerminalAction terminalAction)
+    {
+        BatchJobBuilderValidation.ValidateTerminalFailureAction(terminalAction);
+
+        return WithState(_state with
+        {
+            FailurePolicy = null,
+            TerminalFailureAction = terminalAction,
+        });
     }
 
     private BatchJobBuilder<TItem, TCheckpoint> WithCheckpointCore(
@@ -298,4 +358,22 @@ internal sealed class BatchJobBuilder<TItem, TCheckpoint> :
 
     private BatchJobBuilder<TItem, TCheckpoint> WithState(BatchJobBuilderState<TItem, TCheckpoint> state) =>
         new(state);
+
+    private IFailurePolicy<TItem, TCheckpoint>? BuildFailurePolicy()
+    {
+        if (_state.FailurePolicy is not null)
+        {
+            return _state.FailurePolicy;
+        }
+
+        if (_state.RetryOptions is null && _state.TerminalFailureAction is null)
+        {
+            return null;
+        }
+
+        var retryOptions = _state.RetryOptions ?? new BatchRetryOptions();
+        var terminalAction = _state.TerminalFailureAction ?? BatchFailureTerminalAction.Stop;
+
+        return new FixedRetryFailurePolicy<TItem, TCheckpoint>(retryOptions, terminalAction);
+    }
 }
