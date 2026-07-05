@@ -1408,6 +1408,11 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
                     OccurredAt = completedAt,
                     Status = runtime.Status,
                     Reason = runtime.Reason,
+                    ProcessedBatchCount = runtime.ProcessedBatchCount,
+                    SucceededItemCount = runtime.SucceededItemCount,
+                    SkippedItemCount = runtime.SkippedItemCount,
+                    LastPersistedCheckpoint = runtime.LastPersistedCheckpoint,
+                    Exception = runtime.Exception,
                 }, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1427,6 +1432,11 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
                 OccurredAt = completedAt,
                 Status = runtime.Status,
                 Reason = runtime.Reason,
+                ProcessedBatchCount = runtime.ProcessedBatchCount,
+                SucceededItemCount = runtime.SucceededItemCount,
+                SkippedItemCount = runtime.SkippedItemCount,
+                LastPersistedCheckpoint = runtime.LastPersistedCheckpoint,
+                Exception = runtime.Exception,
             }, cancellationToken);
         }
 

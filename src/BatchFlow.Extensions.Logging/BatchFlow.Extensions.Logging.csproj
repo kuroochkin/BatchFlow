@@ -1,5 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <ProjectReference Include="..\BatchFlow.Core\BatchFlow.Core.csproj" />
+    <ProjectReference Include="..\BatchFlow\BatchFlow.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.15" />
   </ItemGroup>
 </Project>

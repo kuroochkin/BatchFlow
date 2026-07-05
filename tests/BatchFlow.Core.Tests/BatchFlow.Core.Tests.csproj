@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\BatchFlow\BatchFlow.csproj" />
     <ProjectReference Include="..\..\src\BatchFlow.Core\BatchFlow.Core.csproj" />
+    <ProjectReference Include="..\..\src\BatchFlow.Extensions.Logging\BatchFlow.Extensions.Logging.csproj" />
     <ProjectReference Include="..\..\src\BatchFlow.Testing\BatchFlow.Testing.csproj" />
   </ItemGroup>
 </Project>
