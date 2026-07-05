@@ -259,8 +259,7 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
             .ToArray();
 
         var completeNotificationsTask = CompleteBatchNotificationWriterAsync(workerTasks, notifications.Writer);
-        var completedBatches = new SortedDictionary<long, BatchWorkerCompletedNotification<TItem, TCheckpoint>>();
-        var nextCheckpointSequence = 1L;
+        var checkpointCoordinator = CreateParallelBatchCheckpointCoordinator(job, runtime, checkpointId);
         BatchWorkerFailedNotification<TItem, TCheckpoint>? terminalFailure = null;
 
         try
@@ -288,19 +287,9 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
                             break;
                         }
 
-                        if (terminalFailure is null || completed.BufferedBatch.Sequence < terminalFailure.BufferedBatch.Sequence)
+                        if (checkpointCoordinator!.TryTrackCompletion(completed))
                         {
-                            completedBatches[completed.BufferedBatch.Sequence] = completed;
-
-                            nextCheckpointSequence = await TryFlushCompletedBatchesAsync(
-                                job,
-                                job.Observers,
-                                runtime,
-                                checkpointId,
-                                completedBatches,
-                                nextCheckpointSequence,
-                                stopBeforeSequence: terminalFailure?.BufferedBatch.Sequence,
-                                cancellationToken);
+                            await checkpointCoordinator.FlushAsync(cancellationToken);
                         }
 
                         break;
@@ -311,6 +300,8 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
                         runtime.Status = failed.Status;
                         runtime.Reason = failed.Reason;
                         runtime.Exception = failed.Exception;
+
+                        checkpointCoordinator?.RegisterTerminalFailure(failed.BufferedBatch.Sequence);
 
                         await TryPublishFailureAsync(runtime.Job, job.Observers, failed.BufferedBatch.Batch, failed.Context,
                             failed.Exception, failed.Attempt, failed.ItemIndex, runtime.TimeProvider, cancellationToken);
@@ -337,6 +328,43 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
             await bufferedBatches.CompleteAsync(suppressProducerException: true);
             throw;
         }
+    }
+
+    private static ParallelBatchCheckpointCoordinator<TItem, TCheckpoint>? CreateParallelBatchCheckpointCoordinator<TItem, TCheckpoint>(
+        BatchJobDefinition<TItem, TCheckpoint> job,
+        BatchJobRuntimeState<TCheckpoint> runtime,
+        string? checkpointId)
+    {
+        if (checkpointId is null)
+        {
+            return null;
+        }
+
+        return new ParallelBatchCheckpointCoordinator<TItem, TCheckpoint>(
+            runtime,
+            persistCheckpointAsync: (completedBatch, cancellationToken) =>
+                PersistCheckpointAsync(
+                    job,
+                    checkpointId,
+                    completedBatch.BufferedBatch.Batch,
+                    completedBatch.BufferedBatch.Sequence,
+                    runtime,
+                    cancellationToken),
+            publishBatchCompletedAsync: (completedBatch, cancellationToken) =>
+                PublishBatchCompletedAsync(
+                    job.Observers,
+                    runtime.TimeProvider,
+                    completedBatch.BufferedBatch,
+                    completedBatch.Context,
+                    completedBatch.ProcessingResult,
+                    cancellationToken),
+            publishCheckpointSavedAsync: (persistedCheckpoint, cancellationToken) =>
+                PublishCheckpointSavedAsync(
+                    job.Observers,
+                    runtime.TimeProvider,
+                    runtime.Job,
+                    persistedCheckpoint,
+                    cancellationToken));
     }
 
     private static async Task RunBatchWorkerAsync<TItem, TCheckpoint>(
@@ -455,45 +483,6 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
         {
             writer.TryComplete(ex);
         }
-    }
-
-    private static async ValueTask<long> TryFlushCompletedBatchesAsync<TItem, TCheckpoint>(
-        BatchJobDefinition<TItem, TCheckpoint> job,
-        IReadOnlyList<IExecutionObserver<TCheckpoint>> observers,
-        BatchJobRuntimeState<TCheckpoint> runtime,
-        string checkpointId,
-        SortedDictionary<long, BatchWorkerCompletedNotification<TItem, TCheckpoint>> completedBatches,
-        long nextCheckpointSequence,
-        long? stopBeforeSequence,
-        CancellationToken cancellationToken)
-    {
-        while (completedBatches.TryGetValue(nextCheckpointSequence, out var completedBatch)
-               && (stopBeforeSequence is null || nextCheckpointSequence < stopBeforeSequence.Value))
-        {
-            runtime.BatchSequence = completedBatch.BufferedBatch.Sequence;
-            runtime.LastPersistedCheckpoint = await PersistCheckpointAsync(
-                job,
-                checkpointId,
-                completedBatch.BufferedBatch.Batch,
-                completedBatch.BufferedBatch.Sequence,
-                runtime,
-                cancellationToken);
-
-            var persistedCheckpoint = runtime.LastPersistedCheckpoint
-                ?? throw new InvalidOperationException(
-                    "Движок не сохранил контрольную точку после подтвержденной обработки пакета.");
-
-            await PublishBatchCompletedAsync(observers, runtime.TimeProvider, completedBatch.BufferedBatch,
-                completedBatch.Context, completedBatch.ProcessingResult, cancellationToken);
-
-            await PublishCheckpointSavedAsync(observers, runtime.TimeProvider, runtime.Job, persistedCheckpoint,
-                cancellationToken);
-
-            completedBatches.Remove(nextCheckpointSequence);
-            nextCheckpointSequence++;
-        }
-
-        return nextCheckpointSequence;
     }
 
     private static BatchProcessingContext<TCheckpoint> CreateBatchProcessingContext<TItem, TCheckpoint>(
