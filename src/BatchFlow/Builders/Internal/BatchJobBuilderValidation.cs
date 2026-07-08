@@ -1,4 +1,5 @@
 using BatchFlow.Abstractions.Checkpoints;
+using BatchFlow.Abstractions.Observability;
 using BatchFlow.Abstractions.Sources;
 
 namespace BatchFlow.Builders.Internal;
@@ -105,5 +106,25 @@ internal static class BatchJobBuilderValidation
         {
             ValidateCheckpointingSupport(state.Source);
         }
+
+        ValidateObservers(state.Observers);
+    }
+
+    public static void ValidateObserver<TCheckpoint>(IExecutionObserver<TCheckpoint> observer)
+    {
+        ArgumentNullException.ThrowIfNull(observer);
+    }
+
+    public static IReadOnlyList<IExecutionObserver<TCheckpoint>> ValidateObservers<TCheckpoint>(
+        IReadOnlyList<IExecutionObserver<TCheckpoint>> observers)
+    {
+        ArgumentNullException.ThrowIfNull(observers);
+
+        if (observers.Any(static observer => observer is null))
+        {
+            throw new ArgumentException("Коллекция observers не должна содержать пустые значения.", nameof(observers));
+        }
+
+        return observers;
     }
 }

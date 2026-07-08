@@ -244,6 +244,104 @@ public sealed class BatchJobExecutionEngineTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_WhenBatchProcessorFails_PublishesBatchFailedEvent()
+    {
+        var observer = new RecordingExecutionObserver<long>();
+
+        var job = new BatchJobDefinition<int, long>
+        {
+            JobName = "failed-batch-events",
+            Source = new DelegateBatchSource<int, long>((_, _) => ToAsyncEnumerable(
+                CreateBatch([1, 2], checkpoint: 33L, metadata: "page-33"))),
+            ProcessingMode = new BatchProcessorRegistration<int, long>(
+                new DelegateBatchProcessor<int, long>((_, _, _) =>
+                    throw new InvalidOperationException("batch exploded"))),
+            Observers = [observer],
+        };
+
+        var summary = await _engine.ExecuteAsync(new BatchJobExecutionRequest<int, long>
+        {
+            Job = job,
+            RunId = "run-failed-batch-events",
+        });
+
+        summary.Status.Should().Be(JobCompletionStatus.Failed);
+        summary.ProcessedBatchCount.Should().Be(0);
+        summary.Exception.Should().BeOfType<InvalidOperationException>();
+        summary.Exception!.Message.Should().Be("batch exploded");
+
+        observer.Events.Select(@event => @event.GetType()).Should().Equal(
+            typeof(JobStartedEvent<long>),
+            typeof(BatchStartedEvent<long>),
+            typeof(BatchFailedEvent<long>),
+            typeof(JobCompletedEvent<long>));
+
+        var failedEvent = observer.Events.OfType<BatchFailedEvent<long>>().Single();
+        failedEvent.BatchSequence.Should().Be(1);
+        failedEvent.BatchCheckpoint.Should().Be(33L);
+        failedEvent.ItemCount.Should().Be(2);
+        failedEvent.Attempt.Should().Be(1);
+        failedEvent.ItemIndex.Should().BeNull();
+        failedEvent.Exception.Should().BeOfType<InvalidOperationException>();
+        failedEvent.Exception.Message.Should().Be("batch exploded");
+        failedEvent.SourceMetadata["page"].Should().Be("page-33");
+
+        observer.Events.OfType<JobCompletedEvent<long>>().Single().Status.Should().Be(JobCompletionStatus.Failed);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenItemProcessorFailsAfterRetries_PublishesBatchFailedEventWithFinalAttempt()
+    {
+        var observer = new RecordingExecutionObserver<long>();
+
+        var job = new BatchJobDefinition<int, long>
+        {
+            JobName = "failed-item-events",
+            Source = new DelegateBatchSource<int, long>((_, _) => ToAsyncEnumerable(
+                CreateBatch([7, 8], checkpoint: 34L, metadata: "page-34"))),
+            ProcessingMode = new ItemProcessorRegistration<int, long>(
+                new DelegateItemProcessor<int, long>((item, _, _) =>
+                    throw new InvalidOperationException($"item {item} exploded"))),
+            FailurePolicy = new DelegateFailurePolicy<int, long>((context, _) =>
+                new ValueTask<FailureDecision>(
+                    context.Attempt < 3
+                        ? FailureDecision.Retry(TimeSpan.Zero, "retry-item")
+                        : FailureDecision.Stop("retry-limit-reached"))),
+            Observers = [observer],
+        };
+
+        var summary = await _engine.ExecuteAsync(new BatchJobExecutionRequest<int, long>
+        {
+            Job = job,
+            RunId = "run-failed-item-events",
+        });
+
+        summary.Status.Should().Be(JobCompletionStatus.Failed);
+        summary.ProcessedBatchCount.Should().Be(0);
+        summary.Exception.Should().BeOfType<InvalidOperationException>();
+        summary.Exception!.Message.Should().Be("item 7 exploded");
+        summary.Reason.Should().Be("retry-limit-reached");
+
+        observer.Events.Select(@event => @event.GetType()).Should().Equal(
+            typeof(JobStartedEvent<long>),
+            typeof(BatchStartedEvent<long>),
+            typeof(BatchFailedEvent<long>),
+            typeof(JobCompletedEvent<long>));
+
+        var failedEvent = observer.Events.OfType<BatchFailedEvent<long>>().Single();
+        failedEvent.BatchSequence.Should().Be(1);
+        failedEvent.BatchCheckpoint.Should().Be(34L);
+        failedEvent.ItemCount.Should().Be(2);
+        failedEvent.Attempt.Should().Be(3);
+        failedEvent.ItemIndex.Should().Be(0);
+        failedEvent.Exception.Should().BeOfType<InvalidOperationException>();
+        failedEvent.Exception.Message.Should().Be("item 7 exploded");
+        failedEvent.SourceMetadata["page"].Should().Be("page-34");
+
+        observer.Events.OfType<JobCompletedEvent<long>>().Single().Status.Should().Be(JobCompletionStatus.Failed);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_WhenFailurePolicyRetriesThenSkipsItem_ReturnsCompletedWithSkips()
     {
         var observer = new RecordingExecutionObserver<long>();

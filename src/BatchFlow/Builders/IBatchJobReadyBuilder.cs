@@ -1,5 +1,6 @@
 using BatchFlow.Abstractions.Execution;
 using BatchFlow.Abstractions.Failures;
+using BatchFlow.Abstractions.Observability;
 using BatchFlow.Abstractions.Processing;
 using BatchFlow.Abstractions.Results;
 using BatchFlow.Core.Jobs;
@@ -55,6 +56,28 @@ public interface IBatchJobReadyBuilder<TItem, TCheckpoint>
     /// <param name="terminalAction">Конечное действие runtime после неуспешной обработки.</param>
     /// <returns>Текущую стадию builder для продолжения настройки.</returns>
     IBatchJobReadyBuilder<TItem, TCheckpoint> WithTerminalFailureAction(BatchFailureTerminalAction terminalAction);
+
+    /// <summary>
+    /// Подключает наблюдателя runtime-событий и добавляет его в конец текущей цепочки observers.
+    /// </summary>
+    /// <param name="observer">Наблюдатель, который будет получать события выполнения задачи.</param>
+    /// <returns>Текущую стадию builder для продолжения настройки.</returns>
+    IBatchJobReadyBuilder<TItem, TCheckpoint> WithObserver(IExecutionObserver<TCheckpoint> observer);
+
+    /// <summary>
+    /// Подключает наблюдателя runtime-событий в виде делегата.
+    /// </summary>
+    /// <param name="handler">Делегат, который будет вызываться для каждого события выполнения.</param>
+    /// <returns>Текущую стадию builder для продолжения настройки.</returns>
+    IBatchJobReadyBuilder<TItem, TCheckpoint> WithObserver(
+        Func<BatchFlowEvent<TCheckpoint>, CancellationToken, ValueTask> handler);
+
+    /// <summary>
+    /// Подключает несколько наблюдателей runtime-событий, сохраняя порядок их регистрации.
+    /// </summary>
+    /// <param name="observers">Наблюдатели, которые будут получать события выполнения задачи.</param>
+    /// <returns>Текущую стадию builder для продолжения настройки.</returns>
+    IBatchJobReadyBuilder<TItem, TCheckpoint> WithObservers(params IExecutionObserver<TCheckpoint>[] observers);
 
     /// <summary>
     /// Выбирает поэлементный обработчик и заменяет ранее настроенный способ обработки, если он уже был задан.

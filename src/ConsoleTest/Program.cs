@@ -1,6 +1,7 @@
 using BatchFlow;
 using BatchFlow.Abstractions.Checkpoints;
 using BatchFlow.Abstractions.Execution;
+using BatchFlow.Abstractions.Observability;
 using BatchFlow.Abstractions.Results;
 using BatchFlow.Abstractions.Sources;
 using BatchFlow.Checkpoints;
@@ -64,6 +65,46 @@ var summary = await BatchJob
     .WithCheckpoint("orders-demo-v1", checkpointStore)
     .WithRetry(2, TimeSpan.FromMilliseconds(150))
     .WithSkipOnFailure()
+    .WithObserver((@event, _) =>
+    {
+        switch (@event)
+        {
+            case JobStartedEvent<int> started:
+                Console.WriteLine(
+                    $"[event] job started | runId={started.Job.RunId} | resumeFrom={started.ResumeFrom?.Value.ToString() ?? "<нет>"}");
+                break;
+
+            case BatchStartedEvent<int> batchStarted:
+                Console.WriteLine(
+                    $"[event] batch started | seq={batchStarted.BatchSequence} | items={batchStarted.ItemCount}");
+                break;
+
+            case BatchCompletedEvent<int> batchCompleted:
+                Console.WriteLine(
+                    $"[event] batch completed | seq={batchCompleted.BatchSequence} | " +
+                    $"ok={batchCompleted.SucceededCount} | skipped={batchCompleted.SkippedCount}");
+                break;
+
+            case BatchFailedEvent<int> batchFailed:
+                Console.WriteLine(
+                    $"[event] batch failed | seq={batchFailed.BatchSequence} | attempt={batchFailed.Attempt} | " +
+                    $"error={batchFailed.Exception.Message}");
+                break;
+
+            case CheckpointSavedEvent<int> checkpointSaved:
+                Console.WriteLine(
+                    $"[event] checkpoint saved | seq={checkpointSaved.Checkpoint.SequenceNumber} | " +
+                    $"value={checkpointSaved.Checkpoint.Value}");
+                break;
+
+            case JobCompletedEvent<int> completed:
+                Console.WriteLine(
+                    $"[event] job completed | status={completed.Status} | reason={completed.Reason ?? "<нет>"}");
+                break;
+        }
+
+        return ValueTask.CompletedTask;
+    })
     .RunEachAsync(
         async (order, context, token) =>
         {

@@ -1,10 +1,12 @@
 using BatchFlow.Abstractions.Checkpoints;
 using BatchFlow.Abstractions.Execution;
 using BatchFlow.Abstractions.Failures;
+using BatchFlow.Abstractions.Observability;
 using BatchFlow.Abstractions.Processing;
 using BatchFlow.Abstractions.Results;
 using BatchFlow.Core.Jobs;
 using BatchFlow.Core.Processing;
+using BatchFlow.Observability;
 using BatchFlow.Processing;
 
 namespace BatchFlow.Builders.Internal;
@@ -37,6 +39,7 @@ internal sealed class BatchJobBuilder<TItem, TCheckpoint> :
             PrefetchCapacity = _state.PrefetchCapacity,
             CheckpointStore = _state.CheckpointStore,
             FailurePolicy = BuildFailurePolicy(),
+            Observers = _state.Observers,
         };
     }
 
@@ -88,6 +91,18 @@ internal sealed class BatchJobBuilder<TItem, TCheckpoint> :
         BatchFailureTerminalAction terminalAction) =>
         WithTerminalFailureActionCore(terminalAction);
 
+    IBatchJobBuilder<TItem, TCheckpoint> IBatchJobBuilder<TItem, TCheckpoint>.WithObserver(
+        IExecutionObserver<TCheckpoint> observer) =>
+        WithObserverCore(observer);
+
+    IBatchJobBuilder<TItem, TCheckpoint> IBatchJobBuilder<TItem, TCheckpoint>.WithObserver(
+        Func<BatchFlowEvent<TCheckpoint>, CancellationToken, ValueTask> handler) =>
+        WithObserverCore(handler);
+
+    IBatchJobBuilder<TItem, TCheckpoint> IBatchJobBuilder<TItem, TCheckpoint>.WithObservers(
+        params IExecutionObserver<TCheckpoint>[] observers) =>
+        WithObserversCore(observers);
+
     IResumableBatchJobBuilder<TItem, TCheckpoint> IResumableBatchJobBuilder<TItem, TCheckpoint>.WithFailurePolicy(
         IFailurePolicy<TItem, TCheckpoint> failurePolicy) =>
         WithFailurePolicyCore(failurePolicy);
@@ -99,6 +114,18 @@ internal sealed class BatchJobBuilder<TItem, TCheckpoint> :
     IResumableBatchJobBuilder<TItem, TCheckpoint> IResumableBatchJobBuilder<TItem, TCheckpoint>.WithTerminalFailureAction(
         BatchFailureTerminalAction terminalAction) =>
         WithTerminalFailureActionCore(terminalAction);
+
+    IResumableBatchJobBuilder<TItem, TCheckpoint> IResumableBatchJobBuilder<TItem, TCheckpoint>.WithObserver(
+        IExecutionObserver<TCheckpoint> observer) =>
+        WithObserverCore(observer);
+
+    IResumableBatchJobBuilder<TItem, TCheckpoint> IResumableBatchJobBuilder<TItem, TCheckpoint>.WithObserver(
+        Func<BatchFlowEvent<TCheckpoint>, CancellationToken, ValueTask> handler) =>
+        WithObserverCore(handler);
+
+    IResumableBatchJobBuilder<TItem, TCheckpoint> IResumableBatchJobBuilder<TItem, TCheckpoint>.WithObservers(
+        params IExecutionObserver<TCheckpoint>[] observers) =>
+        WithObserversCore(observers);
 
     IBatchJobReadyBuilder<TItem, TCheckpoint> IBatchJobReadyBuilder<TItem, TCheckpoint>.WithFailurePolicy(
         IFailurePolicy<TItem, TCheckpoint> failurePolicy) =>
@@ -112,6 +139,18 @@ internal sealed class BatchJobBuilder<TItem, TCheckpoint> :
         BatchFailureTerminalAction terminalAction) =>
         WithTerminalFailureActionCore(terminalAction);
 
+    IBatchJobReadyBuilder<TItem, TCheckpoint> IBatchJobReadyBuilder<TItem, TCheckpoint>.WithObserver(
+        IExecutionObserver<TCheckpoint> observer) =>
+        WithObserverCore(observer);
+
+    IBatchJobReadyBuilder<TItem, TCheckpoint> IBatchJobReadyBuilder<TItem, TCheckpoint>.WithObserver(
+        Func<BatchFlowEvent<TCheckpoint>, CancellationToken, ValueTask> handler) =>
+        WithObserverCore(handler);
+
+    IBatchJobReadyBuilder<TItem, TCheckpoint> IBatchJobReadyBuilder<TItem, TCheckpoint>.WithObservers(
+        params IExecutionObserver<TCheckpoint>[] observers) =>
+        WithObserversCore(observers);
+
     IResumableBatchJobReadyBuilder<TItem, TCheckpoint> IResumableBatchJobReadyBuilder<TItem, TCheckpoint>.WithFailurePolicy(
         IFailurePolicy<TItem, TCheckpoint> failurePolicy) =>
         WithFailurePolicyCore(failurePolicy);
@@ -123,6 +162,18 @@ internal sealed class BatchJobBuilder<TItem, TCheckpoint> :
     IResumableBatchJobReadyBuilder<TItem, TCheckpoint> IResumableBatchJobReadyBuilder<TItem, TCheckpoint>.WithTerminalFailureAction(
         BatchFailureTerminalAction terminalAction) =>
         WithTerminalFailureActionCore(terminalAction);
+
+    IResumableBatchJobReadyBuilder<TItem, TCheckpoint> IResumableBatchJobReadyBuilder<TItem, TCheckpoint>.WithObserver(
+        IExecutionObserver<TCheckpoint> observer) =>
+        WithObserverCore(observer);
+
+    IResumableBatchJobReadyBuilder<TItem, TCheckpoint> IResumableBatchJobReadyBuilder<TItem, TCheckpoint>.WithObserver(
+        Func<BatchFlowEvent<TCheckpoint>, CancellationToken, ValueTask> handler) =>
+        WithObserverCore(handler);
+
+    IResumableBatchJobReadyBuilder<TItem, TCheckpoint> IResumableBatchJobReadyBuilder<TItem, TCheckpoint>.WithObservers(
+        params IExecutionObserver<TCheckpoint>[] observers) =>
+        WithObserversCore(observers);
 
     IResumableBatchJobBuilder<TItem, TCheckpoint> IResumableBatchJobBuilder<TItem, TCheckpoint>.WithCheckpoint(ICheckpointStore<TCheckpoint> checkpointStore) =>
         WithCheckpointCore(checkpointStore, checkpointId: null);
@@ -285,6 +336,35 @@ internal sealed class BatchJobBuilder<TItem, TCheckpoint> :
         {
             FailurePolicy = null,
             TerminalFailureAction = terminalAction,
+        });
+    }
+
+    private BatchJobBuilder<TItem, TCheckpoint> WithObserverCore(IExecutionObserver<TCheckpoint> observer)
+    {
+        BatchJobBuilderValidation.ValidateObserver(observer);
+        return WithObserversCore([observer]);
+    }
+
+    private BatchJobBuilder<TItem, TCheckpoint> WithObserverCore(
+        Func<BatchFlowEvent<TCheckpoint>, CancellationToken, ValueTask> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return WithObserverCore(new DelegateExecutionObserver<TCheckpoint>(handler));
+    }
+
+    private BatchJobBuilder<TItem, TCheckpoint> WithObserversCore(
+        IReadOnlyList<IExecutionObserver<TCheckpoint>> observers)
+    {
+        var validatedObservers = BatchJobBuilderValidation.ValidateObservers(observers);
+
+        if (validatedObservers.Count == 0)
+        {
+            return this;
+        }
+
+        return WithState(_state with
+        {
+            Observers = [.. _state.Observers, .. validatedObservers],
         });
     }
 
