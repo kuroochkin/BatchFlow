@@ -24,7 +24,7 @@ BatchFlow - библиотека .NET для пакетной обработки
 | `BatchFlow.Core` | Execution engine, очереди, workers и checkpoint coordinator; зависит только от `Abstractions` |
 | `BatchFlow` | Публичный фасад, fluent builder, запуск, встроенные политики и in-memory store |
 | `BatchFlow.Postgres` | SQL-чтение, Npgsql, подключения, материализация и PostgreSQL checkpoint store |
-| `BatchFlow.EntityFrameworkCore` | Каркас EF-источника, получение и жизненный цикл `DbContext`; без конкретного провайдера |
+| `BatchFlow.EntityFrameworkCore` | LINQ/keyset-source, получение и жизненный цикл `DbContext`; без конкретного провайдера |
 | `BatchFlow.Extensions.Logging` | Адаптация runtime-событий в `ILogger` |
 | `BatchFlow.Testing` | Тестовые реализации и фиксация вызовов |
 
@@ -32,7 +32,8 @@ BatchFlow - библиотека .NET для пакетной обработки
 
 - Не добавляй в Core или Abstractions зависимости от Npgsql, ORM, `ILogger`, DI, OpenTelemetry и конкретных хранилищ.
 - Пользовательские удобные методы размещай в фасаде или extension-классе соответствующего адаптера. Не дублируй execution flow в адаптерах.
-- EF-адаптер не должен зависеть от `BatchFlow.Postgres` или навязывать EF-провайдер. Фабричные контексты освобождает источник, готовый контекст остается внешним. Готового универсального LINQ/keyset-источника пока нет; границы описаны в `docs/10-entity-framework-core.md`.
+- EF-адаптер не должен зависеть от `BatchFlow.Postgres` или навязывать EF-провайдер. `EfCoreBatchSource` требует фабрику и освобождает контекст на каждую порцию до выдачи данных. Старый `EntityFrameworkCoreBatchSourceBase` сохраняет lifetime на перечисление и поддержку внешнего контекста. Контракты описаны в `docs/10-entity-framework-core.md` и `docs/11-ef-core-source.md`.
+- Для готового EF-source обязательны стабильная уникальная сортировка, строгий предикат продолжения и согласованный сравниватель checkpoint. Не заменяй keyset на offset, не добавляй скрытую клиентскую пагинацию или отключение проверки порядка. Порция читает один дополнительный элемент для проверки границы; checkpoint берется с последнего выданного, не дополнительного элемента.
 - Сохраняй разделение контрактов, runtime, fluent API и инфраструктуры. Новую абстракцию или проект вводи под конкретную ответственность и сценарий.
 - По умолчанию оставляй реализацию `internal`. Новый публичный тип, virtual-метод или изменение сигнатуры рассматривай как изменение API библиотеки.
 
@@ -111,7 +112,7 @@ BatchFlow - библиотека .NET для пакетной обработки
 ## Тесты и проверка изменений
 
 - Используй существующие xUnit и FluentAssertions; не добавляй второй тестовый стек без необходимости.
-- Runtime, builder и logging проверяются в `BatchFlow.Core.Tests`; PostgreSQL-адаптер - в `BatchFlow.Postgres.Tests`; каркас EF Core - в `BatchFlow.EntityFrameworkCore.Tests`. Переиспользуй doubles из `BatchFlow.Testing`.
+- Runtime, builder и logging проверяются в `BatchFlow.Core.Tests`; PostgreSQL-адаптер - в `BatchFlow.Postgres.Tests`; EF Core - в `BatchFlow.EntityFrameworkCore.Tests`. Переиспользуй doubles из `BatchFlow.Testing`. SQLite-тесты EF запускаются без внешней БД и не заменяют проверки других провайдеров; полный пример находится в `samples/BatchFlow.EntityFrameworkCore.Sample`.
 - Для новых тестов следуй именованию соседнего класса. Не переименовывай старые тесты только ради унификации.
 - Изменение поведения сопровождай тестом наблюдаемого результата; исправление дефекта - регрессионным сценарием. Проверяй существенные границы, а не зеркальное повторение реализации.
 - Для конкурентных тестов используй `TaskCompletionSource` с `RunContinuationsAsynchronously`, управляемые барьеры и ограниченные ожидания. Не полагайся на произвольный `Sleep` как доказательство порядка выполнения.
