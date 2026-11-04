@@ -18,7 +18,7 @@
 dotnet run --project samples/BatchFlow.EntityFrameworkCore.Sample
 ```
 
-Первый запуск обрабатывает три заказа и сохраняет позицию `3`. Второй запуск того же job и store начинает с `3`, не обрабатывает заказы повторно и возвращает `Succeeded`. In-memory store сохраняет состояние только в текущем процессе.
+Пример регистрирует source через DI поверх штатной фабрики с пулом и запускает два независимых job: `RunEachAsync` и `RunBatchAsync`. Каждый сначала обрабатывает три заказа, проходит демонстрационный retry и сохраняет позицию `3`. Повтор в новом DI-scope обрабатывает ноль заказов и возвращает `Succeeded`; в таблице назначения шесть строк без дублей. In-memory store сохраняет состояние только в текущем процессе.
 
 Основная конфигурация из примера, где `factory` - настроенный `IDbContextFactory<OrdersDbContext>`, а `OrderDto` - модель с `Id` и `Number`:
 
@@ -35,7 +35,7 @@ var sourceOptions = new EfCoreBatchSourceOptions<OrdersDbContext, OrderDto, long
 };
 ```
 
-Options передаются прямо в `.FromEntityFrameworkCore(sourceOptions)`. Также можно создать `new EfCoreBatchSource<OrdersDbContext, OrderDto, long>(sourceOptions)` и передать его в `.FromEntityFrameworkCore(source)` или обычный `.From(source)`. Во всех вариантах запросы начинаются только при запуске и чтении перечислителя. Полный пример показывает builder, обработчик и обязательную проверку `summary.Status`.
+Options передаются прямо в `.FromDbContext(sourceOptions)` или прежний `.FromEntityFrameworkCore(sourceOptions)`. Также можно создать `new EfCoreBatchSource<OrdersDbContext, OrderDto, long>(sourceOptions)` и передать его в `.FromDbContext(source)` или обычный `.From(source)`. Перегрузки с фабрикой, configure-delegate и DI описаны в [отдельном руководстве](12-dependency-injection.md). Во всех вариантах запросы начинаются только при запуске и чтении перечислителя. Полный пример показывает builder, обработчик и обязательную проверку `summary.Status`.
 
 ## Контракт options
 
