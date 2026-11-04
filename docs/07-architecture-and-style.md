@@ -12,12 +12,15 @@
 | `BatchFlow.Core` | Execution engine, очереди, workers, coordinator | `Abstractions` |
 | `BatchFlow` | Builder, запуск, политика ошибок, in-memory store | `Core`, `Abstractions` |
 | `BatchFlow.Postgres` | SQL-чтение и PostgreSQL checkpoint | `Abstractions`, `Core`, `BatchFlow` |
+| `BatchFlow.EntityFrameworkCore` | Каркас EF-источника и жизненный цикл `DbContext` | `Abstractions`, `Core`, `BatchFlow` |
 | `BatchFlow.Extensions.Logging` | Runtime-события -> `ILogger` | `BatchFlow` |
 | `BatchFlow.Testing` | Doubles и фиксация вызовов | `Abstractions`, `Core`, `BatchFlow` |
 | `BatchFlow.Extensions.DependencyInjection` | Пока каркас | `Core` |
 | `BatchFlow.Extensions.Diagnostics` | Пока каркас | `Core` |
 
 `Npgsql` находится в PostgreSQL-проекте, logging abstractions - в logging-проекте. Core не должен ссылаться на них. `ConsoleTest` - исполняемый пример, а не обязательный пакет пользователя.
+
+`Microsoft.EntityFrameworkCore` находится только в EF-адаптере. Пакет не выбирает провайдер БД и не использует PostgreSQL-адаптер. Его базовый source управляет контекстом на время перечисления; запросы остаются в наследнике. [Границы каркаса](10-entity-framework-core.md).
 
 ## Путь одного запуска
 
@@ -46,6 +49,7 @@
 8. `Execution/Buffering`, `Execution/Parallel`: producer, notifications и coordinator.
 9. `BatchFlow.Postgres/Options`, `Sources`, `Internal`, `Checkpoints`, `Extensions`: адаптер.
 10. Logging-адаптер и тесты рядом с изученным поведением.
+11. `BatchFlow.EntityFrameworkCore/Options`, `Internal`, `Sources`, `Extensions` и отдельные тесты lifecycle: каркас EF-адаптера.
 
 ## Существующий код-стайл
 
