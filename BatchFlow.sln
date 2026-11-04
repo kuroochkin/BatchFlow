@@ -18,11 +18,15 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BatchFlow.Core", "src\Batch
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BatchFlow.Postgres", "src\BatchFlow.Postgres\BatchFlow.Postgres.csproj", "{8D04EC58-AACF-4569-9D86-1F9D5C521465}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BatchFlow.EntityFrameworkCore", "src\BatchFlow.EntityFrameworkCore\BatchFlow.EntityFrameworkCore.csproj", "{91641147-0687-40E8-961D-8FEC8EF64D25}"
+EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05-4346-4AA6-1389-037BE0695223}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BatchFlow.Core.Tests", "tests\BatchFlow.Core.Tests\BatchFlow.Core.Tests.csproj", "{109BAC5F-89EC-45EE-985E-99C1BB726524}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BatchFlow.Postgres.Tests", "tests\BatchFlow.Postgres.Tests\BatchFlow.Postgres.Tests.csproj", "{CE478496-8EC1-41E8-88A9-5E159D56A520}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BatchFlow.EntityFrameworkCore.Tests", "tests\BatchFlow.EntityFrameworkCore.Tests\BatchFlow.EntityFrameworkCore.Tests.csproj", "{99A07BDB-F341-4F39-8DA4-A6EDAC641EBC}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConsoleTest", "src\ConsoleTest\ConsoleTest.csproj", "{FE4C126C-272B-45B0-A32B-6F905F947D1D}"
 EndProject
@@ -36,6 +40,30 @@ Global
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{91641147-0687-40E8-961D-8FEC8EF64D25}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{91641147-0687-40E8-961D-8FEC8EF64D25}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{91641147-0687-40E8-961D-8FEC8EF64D25}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{91641147-0687-40E8-961D-8FEC8EF64D25}.Debug|x64.Build.0 = Debug|Any CPU
+		{91641147-0687-40E8-961D-8FEC8EF64D25}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{91641147-0687-40E8-961D-8FEC8EF64D25}.Debug|x86.Build.0 = Debug|Any CPU
+		{91641147-0687-40E8-961D-8FEC8EF64D25}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{91641147-0687-40E8-961D-8FEC8EF64D25}.Release|Any CPU.Build.0 = Release|Any CPU
+		{91641147-0687-40E8-961D-8FEC8EF64D25}.Release|x64.ActiveCfg = Release|Any CPU
+		{91641147-0687-40E8-961D-8FEC8EF64D25}.Release|x64.Build.0 = Release|Any CPU
+		{91641147-0687-40E8-961D-8FEC8EF64D25}.Release|x86.ActiveCfg = Release|Any CPU
+		{91641147-0687-40E8-961D-8FEC8EF64D25}.Release|x86.Build.0 = Release|Any CPU
+		{99A07BDB-F341-4F39-8DA4-A6EDAC641EBC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{99A07BDB-F341-4F39-8DA4-A6EDAC641EBC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{99A07BDB-F341-4F39-8DA4-A6EDAC641EBC}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{99A07BDB-F341-4F39-8DA4-A6EDAC641EBC}.Debug|x64.Build.0 = Debug|Any CPU
+		{99A07BDB-F341-4F39-8DA4-A6EDAC641EBC}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{99A07BDB-F341-4F39-8DA4-A6EDAC641EBC}.Debug|x86.Build.0 = Debug|Any CPU
+		{99A07BDB-F341-4F39-8DA4-A6EDAC641EBC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{99A07BDB-F341-4F39-8DA4-A6EDAC641EBC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{99A07BDB-F341-4F39-8DA4-A6EDAC641EBC}.Release|x64.ActiveCfg = Release|Any CPU
+		{99A07BDB-F341-4F39-8DA4-A6EDAC641EBC}.Release|x64.Build.0 = Release|Any CPU
+		{99A07BDB-F341-4F39-8DA4-A6EDAC641EBC}.Release|x86.ActiveCfg = Release|Any CPU
+		{99A07BDB-F341-4F39-8DA4-A6EDAC641EBC}.Release|x86.Build.0 = Release|Any CPU
 		{FD3CF685-B14E-459D-B8AC-6EE1EAF2A4FD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{FD3CF685-B14E-459D-B8AC-6EE1EAF2A4FD}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FD3CF685-B14E-459D-B8AC-6EE1EAF2A4FD}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -173,6 +201,8 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
+		{91641147-0687-40E8-961D-8FEC8EF64D25} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{99A07BDB-F341-4F39-8DA4-A6EDAC641EBC} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{FD3CF685-B14E-459D-B8AC-6EE1EAF2A4FD} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{FC284713-FE06-4B80-A2D7-62E7FBE12BB3} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{C8E5A709-711B-4C72-9E7D-949745FCA796} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
