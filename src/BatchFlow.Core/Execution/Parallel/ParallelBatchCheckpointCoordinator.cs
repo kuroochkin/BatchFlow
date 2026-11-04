@@ -17,6 +17,7 @@ internal sealed class ParallelBatchCheckpointCoordinator<TItem, TCheckpoint>
     private readonly Func<BatchWorkerCompletedNotification<TItem, TCheckpoint>, CancellationToken, ValueTask> _publishBatchCompletedAsync;
     private readonly Func<StoredCheckpoint<TCheckpoint>, CancellationToken, ValueTask> _publishCheckpointSavedAsync;
     private readonly SortedDictionary<long, BatchWorkerCompletedNotification<TItem, TCheckpoint>> _completedBatches = [];
+    private readonly Action? _confirmBatch;
 
     private long _nextCheckpointSequence = 1;
     private long? _stopBeforeSequence;
@@ -28,12 +29,14 @@ internal sealed class ParallelBatchCheckpointCoordinator<TItem, TCheckpoint>
         BatchJobRuntimeState<TCheckpoint> runtime,
         Func<BatchWorkerCompletedNotification<TItem, TCheckpoint>, CancellationToken, ValueTask<StoredCheckpoint<TCheckpoint>>> persistCheckpointAsync,
         Func<BatchWorkerCompletedNotification<TItem, TCheckpoint>, CancellationToken, ValueTask> publishBatchCompletedAsync,
-        Func<StoredCheckpoint<TCheckpoint>, CancellationToken, ValueTask> publishCheckpointSavedAsync)
+        Func<StoredCheckpoint<TCheckpoint>, CancellationToken, ValueTask> publishCheckpointSavedAsync,
+        Action? confirmBatch = null)
     {
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _persistCheckpointAsync = persistCheckpointAsync ?? throw new ArgumentNullException(nameof(persistCheckpointAsync));
         _publishBatchCompletedAsync = publishBatchCompletedAsync ?? throw new ArgumentNullException(nameof(publishBatchCompletedAsync));
         _publishCheckpointSavedAsync = publishCheckpointSavedAsync ?? throw new ArgumentNullException(nameof(publishCheckpointSavedAsync));
+        _confirmBatch = confirmBatch;
     }
 
     /// <summary>
@@ -106,6 +109,7 @@ internal sealed class ParallelBatchCheckpointCoordinator<TItem, TCheckpoint>
 
             _completedBatches.Remove(_nextCheckpointSequence);
             _nextCheckpointSequence++;
+            _confirmBatch?.Invoke();
         }
     }
 

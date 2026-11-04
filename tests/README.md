@@ -1,8 +1,11 @@
-# Tests
+# Тесты
 
-Папка для unit-, contract- и integration-тестов BatchFlow.
+Текущие проверки выполняются командой `dotnet test BatchFlow.sln` из корня репозитория.
 
-Текущий стартовый контур:
+Существующий контур:
 
-- `BatchFlow.Core.Tests` - unit-тесты execution engine и runtime-семантики;
-- `BatchFlow.Testing` - reusable test doubles, которые можно использовать в unit-, contract- и adapter-тестах.
+- `BatchFlow.Core.Tests` - execution engine, builder, retry, checkpoint coordination, in-memory store и логирование;
+- `BatchFlow.Postgres.Tests` - options, materialization, keyset-переходы, serializer и fluent-расширения;
+- `BatchFlow.Testing` в `src` - переиспользуемые doubles для тестов библиотеки и приложений.
+
+Модульные PostgreSQL-тесты используют подставной reader. В том же проекте есть отдельная категория `PostgresIntegration` для настоящей БД: [подготовка и запуск](BatchFlow.Postgres.Tests/Integration/README.md). Без переменной `BATCHFLOW_POSTGRES_TESTS` эта категория явно пропускается. Core содержит управляемые конкурентные регрессии и стресс-проверки ограниченного окна на 2000 пакетах; это не нагрузочный benchmark. Как тестировать пользовательские задачи: [руководство](../docs/06-extending-and-testing.md).

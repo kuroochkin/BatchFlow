@@ -30,6 +30,12 @@ public sealed class BatchFlowProgressLoggingOptions<TCheckpoint>
     /// </summary>
     public LogLevel BatchFailedLogLevel { get; set; } = LogLevel.Error;
 
+    /// <summary>Уровень лога о решении повторить обработку после ошибки.</summary>
+    public LogLevel ProcessingRetryLogLevel { get; set; } = LogLevel.Warning;
+
+    /// <summary>Уровень лога об окончательном пропуске.</summary>
+    public LogLevel ProcessingSkippedLogLevel { get; set; } = LogLevel.Warning;
+
     /// <summary>
     /// Уровень лога для события сохранения checkpoint.
     /// По умолчанию используется <see cref="LogLevel.Debug"/>, чтобы не перегружать лог каждую подтвержденную фиксацию.

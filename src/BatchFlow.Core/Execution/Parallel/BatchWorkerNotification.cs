@@ -26,6 +26,12 @@ internal abstract record BatchWorkerNotification<TItem, TCheckpoint>
 /// </summary>
 internal sealed record BatchWorkerStartedNotification<TItem, TCheckpoint> : BatchWorkerNotification<TItem, TCheckpoint>;
 
+/// <summary>Передает retry/skip в общий ограниченный канал, сохраняя последовательную доставку observers.</summary>
+internal sealed record BatchWorkerProgressNotification<TItem, TCheckpoint> : BatchWorkerNotification<TItem, TCheckpoint>
+{
+    public required BatchFlowEvent<TCheckpoint> Event { get; init; }
+}
+
 /// <summary>
 /// Сообщает coordinator-у, что worker завершил обработку batch-а и получил окончательный результат.
 /// </summary>
