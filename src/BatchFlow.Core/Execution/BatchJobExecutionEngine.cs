@@ -816,7 +816,7 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
             {
                 throw;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
                 var failureHandlingResult = await HandleBatchProcessingFailureAsync(
                     job, batch, context, attempt, ex, publishEventAsync, cancellationToken);
@@ -1057,7 +1057,7 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
             {
                 throw;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
                 var failureHandlingResult = await HandleItemProcessingFailureAsync(
                     job, batch, context, item, itemIndex, attempt, ex, cancellationToken);
@@ -1182,7 +1182,7 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
                 Scope = FailureScope.Batch,
             }, cancellationToken);
         }
-        catch (Exception policyException) when (policyException is not OperationCanceledException)
+        catch (Exception policyException) when (policyException is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             throw new BatchJobProcessingException("Политика обработки ошибок завершилась исключением.",
                 attempt, itemIndex: null, policyException);
@@ -1316,7 +1316,7 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
                 FailedItem = item,
             }, cancellationToken);
         }
-        catch (Exception policyException) when (policyException is not OperationCanceledException)
+        catch (Exception policyException) when (policyException is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             throw new BatchJobProcessingException("Политика обработки ошибок завершилась исключением.",
                 attempt, itemIndex, policyException);

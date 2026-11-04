@@ -39,6 +39,121 @@ public sealed class ProcessingObservabilityTests
     }
 
     [Theory]
+    [InlineData(false, 1)]
+    [InlineData(false, 3)]
+    [InlineData(true, 1)]
+    [InlineData(true, 3)]
+    public async Task Foreign_cancellation_should_follow_configured_skip_policy(bool batchMode, int parallelism)
+    {
+        var observer = new RecordingExecutionObserver<int>();
+        var expected = new TaskCanceledException("upstream request timed out");
+        var builder = BatchJob.Named("skip-foreign-cancellation").From(Source(1, [1, 2, 3]))
+            .WithDegreeOfParallelism(parallelism).WithSkipOnFailure().WithObserver(observer);
+        var summary = batchMode
+            ? await builder.RunBatchAsync((_, _, _) => ValueTask.FromException(expected))
+            : await builder.RunEachAsync((_, _, _) => ValueTask.FromException<ProcessingResult>(expected));
+
+        summary.Status.Should().Be(JobCompletionStatus.CompletedWithSkips);
+        summary.SkippedItemCount.Should().Be(3);
+        observer.Events.OfType<ProcessingSkippedEvent<int>>().Should().HaveCount(batchMode ? 1 : 3)
+            .And.OnlyContain(@event => @event.Exception == expected);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Foreign_cancellation_should_be_retried_when_explicitly_enabled(bool batchMode)
+    {
+        var observer = new RecordingExecutionObserver<int>();
+        var builder = BatchJob.Named("retry-foreign-cancellation").From(Source(1)).WithObserver(observer)
+            .WithRetry(new BatchRetryOptions
+            {
+                MaxRetryAttempts = 1,
+                ShouldHandle = exception => exception is TaskCanceledException,
+            });
+        var summary = batchMode
+            ? await builder.RunBatchAsync((items, context, _) => context.Attempt == 1
+                ? ValueTask.FromException<BatchProcessingResult>(new TaskCanceledException("upstream timeout"))
+                : ValueTask.FromResult(BatchProcessingResult.AllSucceeded(items.Count)))
+            : await builder.RunEachAsync((_, context, _) => context.Attempt == 1
+                ? ValueTask.FromException<ProcessingResult>(new TaskCanceledException("upstream timeout"))
+                : ValueTask.FromResult(ProcessingResult.Success()));
+
+        summary.Status.Should().Be(JobCompletionStatus.Succeeded);
+        observer.Events.OfType<ProcessingRetryEvent<int>>().Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task External_cancellation_should_not_be_skipped_by_failure_policy()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var observer = new RecordingExecutionObserver<int>();
+        var summary = await BatchJob.Named("external-cancellation-not-skipped").From(Source(1)).WithSkipOnFailure()
+            .WithObserver(observer).RunEachAsync((_, _, token) =>
+            {
+                cancellation.Cancel();
+                token.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(ProcessingResult.Success());
+            }, cancellation.Token);
+
+        summary.Status.Should().Be(JobCompletionStatus.Cancelled);
+        observer.Events.OfType<ProcessingSkippedEvent<int>>().Should().BeEmpty();
+        observer.Events.OfType<ProcessingRetryEvent<int>>().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Foreign_cancellation_should_not_be_retried_by_default(bool batchMode)
+    {
+        var calls = 0;
+        var observer = new RecordingExecutionObserver<int>();
+        var builder = BatchJob.Named("default-foreign-cancellation").From(Source(1)).WithRetry(10).WithObserver(observer);
+        var expected = new TaskCanceledException("local timeout");
+        var summary = batchMode
+            ? await builder.RunBatchAsync((_, _, _) =>
+            {
+                calls++;
+                return ValueTask.FromException(expected);
+            })
+            : await builder.RunEachAsync((_, _, _) =>
+            {
+                calls++;
+                return ValueTask.FromException<ProcessingResult>(expected);
+            });
+
+        summary.Status.Should().Be(JobCompletionStatus.Failed);
+        summary.Exception.Should().BeSameAs(expected);
+        calls.Should().Be(1);
+        observer.Events.OfType<ProcessingRetryEvent<int>>().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Foreign_cancellation_in_policy_should_preserve_failure_attempt_and_item_index(bool batchMode)
+    {
+        var observer = new RecordingExecutionObserver<int>();
+        var expected = new TaskCanceledException("policy request timed out");
+        var policy = new DelegateFailurePolicy<int, int>((context, _) => context.Attempt == 1
+            ? ValueTask.FromResult(FailureDecision.Retry())
+            : ValueTask.FromException<FailureDecision>(expected));
+        var builder = BatchJob.Named("policy-local-cancellation").From(Source(1, [1, 2]))
+            .WithFailurePolicy(policy).WithObserver(observer);
+        var summary = batchMode
+            ? await builder.RunBatchAsync((_, _, _) => ValueTask.FromException(new InvalidOperationException("handler failed")))
+            : await builder.RunEachAsync((item, _, _) => item == 1
+                ? ValueTask.FromResult(ProcessingResult.Success())
+                : ValueTask.FromException<ProcessingResult>(new InvalidOperationException("handler failed")));
+
+        summary.Status.Should().Be(JobCompletionStatus.Failed);
+        summary.Exception.Should().BeSameAs(expected);
+        var failure = observer.Events.OfType<BatchFailedEvent<int>>().Single();
+        failure.Attempt.Should().Be(2);
+        failure.ItemIndex.Should().Be(batchMode ? null : 1);
+    }
+
+    [Theory]
     [InlineData(1)]
     [InlineData(3)]
     public async Task Batch_retry_and_skip_should_preserve_reasons_and_per_batch_event_order(int parallelism)
