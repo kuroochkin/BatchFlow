@@ -1,4 +1,4 @@
-# Solution structure
+# Структура solution
 
 ## Каталоги
 
@@ -19,20 +19,28 @@
   - публичный фасад библиотеки, fluent/builder API и удобные точки входа для потребителя;
   - зависит от `BatchFlow.Core`.
 - `BatchFlow.Extensions.DependencyInjection`
-  - интеграция с `IServiceCollection`;
+  - каркас будущей интеграции с `IServiceCollection`, готового API пока нет;
   - зависит от `BatchFlow.Core` и не затягивает зависимость обратно в runtime.
 - `BatchFlow.Extensions.Logging`
   - адаптация runtime-событий в `ILogger`;
-  - зависит от `BatchFlow.Core`.
+  - напрямую зависит от `BatchFlow`, получает `Core` транзитивно.
 - `BatchFlow.Extensions.Diagnostics`
-  - метрики и tracing поверх runtime;
+  - каркас будущих метрик и трассировки, готового API пока нет;
   - зависит от `BatchFlow.Core`.
 - `BatchFlow.Postgres`
   - PostgreSQL-адаптеры для источников данных и хранения контрольных точек;
   - зависит от `BatchFlow.Abstractions`, `BatchFlow.Core`, `BatchFlow` и `Npgsql`.
 - `BatchFlow.Testing`
   - тестовые реализации, fake-адаптеры и вспомогательные утилиты для сценариев библиотеки;
-  - зависит от `BatchFlow.Core` и `BatchFlow.Abstractions`.
+  - напрямую зависит от `BatchFlow`, `BatchFlow.Core` и `BatchFlow.Abstractions`.
+
+## Примеры и проверки
+
+`src/ConsoleTest` - исполняемый пример с in-memory source, retry, skip, checkpoint и логированием. `samples` пока содержит только README.
+
+`BatchFlow.Core.Tests` проверяет runtime, builder, retry, in-memory store и logging-адаптер. `BatchFlow.Postgres.Tests` проверяет options, source с подставным reader, serializer и fluent-расширения. В нем также есть категория `PostgresIntegration` для проверок с настоящей БД: [подготовка и запуск](../tests/BatchFlow.Postgres.Tests/Integration/README.md).
+
+Общие настройки в `Directory.Build.props`: `net9.0`, nullable, implicit usings, генерация XML. Порядок изучения и соглашения кода: [архитектурное руководство](07-architecture-and-style.md). Использование библиотеки: [README](../README.md).
 
 ## Правила зависимостей
 
