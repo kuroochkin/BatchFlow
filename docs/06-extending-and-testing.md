@@ -68,7 +68,7 @@ internal sealed class PositiveNumberProcessor : IItemProcessor<int, NoCheckpoint
 
 Подключение: `BatchJob.Named("numbers").From(new NumberSource([1, -1, 2])).RunEachAsync(new PositiveNumberProcessor())`. Для пакетной логики используйте `IBatchProcessor<TItem, TCheckpoint>`.
 
-Обработчик не получает отдельный экземпляр на worker автоматически. Lifetime зависимостей организует приложение. Готовой регистрации `AddBatchFlow` пока нет; вручную зарегистрировать зависимости в DI-контейнере приложения можно обычным способом.
+Обработчик не получает отдельный экземпляр на worker автоматически. Lifetime зависимостей организует приложение. `AddBatchFlow` и отдельные DI-пакеты адаптеров описаны в [руководстве DI](12-dependency-injection.md). Собственные адаптеры можно зарегистрировать обычными средствами контейнера; время жизни их зависимостей остается ответственностью приложения.
 
 ## Свой checkpoint store
 

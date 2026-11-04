@@ -4,6 +4,8 @@
 
 Полный пример SQL, подключений и восстановления: [руководство по PostgreSQL](../../docs/04-postgres.md). Известные ограничения и необходимые интеграционные проверки: [разбор проекта](../../docs/08-review.md).
 
+Необязательный `BatchFlow.Postgres.DependencyInjection` добавляет регистрации пула, source/store и snapshot binding, не меняя зависимости этого адаптера. [DI и lifetimes](../../docs/12-dependency-injection.md) · [Полная исполняемая программа](../../samples/BatchFlow.Postgres.Sample/Program.cs).
+
 Содержит:
 
 - базовые точки расширения для источников данных поверх PostgreSQL;

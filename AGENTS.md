@@ -26,13 +26,18 @@ BatchFlow - библиотека .NET для пакетной обработки
 | `BatchFlow.Postgres` | SQL-чтение, Npgsql, подключения, материализация и PostgreSQL checkpoint store |
 | `BatchFlow.EntityFrameworkCore` | LINQ/keyset-source, получение и жизненный цикл `DbContext`; без конкретного провайдера |
 | `BatchFlow.Extensions.Logging` | Адаптация runtime-событий в `ILogger` |
+| `BatchFlow.Extensions.DependencyInjection` | Общие DI-регистрации runtime и in-memory store, без зависимостей от адаптеров |
+| `BatchFlow.Postgres.DependencyInjection` | Регистрации Npgsql-пула, scoped/keyed source/store и snapshot конфигурации |
+| `BatchFlow.EntityFrameworkCore.DependencyInjection` | Scoped/keyed source поверх штатного IDbContextFactory приложения |
 | `BatchFlow.Testing` | Тестовые реализации и фиксация вызовов |
 
-`Extensions.DependencyInjection` и `Extensions.Diagnostics` пока содержат каркасы. Проверяй их фактическое состояние перед использованием; не описывай запланированные методы как существующие.
+`Extensions.Diagnostics` пока содержит каркас. Общий DI-пакет и отдельные DI-пакеты адаптеров реализованы; контракты и примеры описаны в `docs/12-dependency-injection.md`.
 
 - Не добавляй в Core или Abstractions зависимости от Npgsql, ORM, `ILogger`, DI, OpenTelemetry и конкретных хранилищ.
 - Пользовательские удобные методы размещай в фасаде или extension-классе соответствующего адаптера. Не дублируй execution flow в адаптерах.
 - EF-адаптер не должен зависеть от `BatchFlow.Postgres` или навязывать EF-провайдер. `EfCoreBatchSource` требует фабрику и освобождает контекст на каждую порцию до выдачи данных. Старый `EntityFrameworkCoreBatchSourceBase` сохраняет lifetime на перечисление и поддержку внешнего контекста. Контракты описаны в `docs/10-entity-framework-core.md` и `docs/11-ef-core-source.md`.
+- DI адаптеров остается в отдельных необязательных пакетах: базовые адаптеры не ссылаются на них, общий DI не ссылается на адаптеры, PostgreSQL DI и EF DI не зависят друг от друга. Не добавляй скрытый BuildServiceProvider, service locator в builder или регистрацию провайдера EF вместо приложения.
+- Сохраняй явные lifetimes: singleton pool и in-memory store, scoped source/store, transient run options. Созданным через DI-фабрику NpgsqlDataSource владеет контейнер, переданным экземпляром - приложение. Регистрация/разрешение не открывают БД и не выполняют DDL. Scope живет до окончания job; настройки запуска из DI передаются в Run явно. Именованные регистрации не создают неявные interface aliases; повторы типа/ключа отклоняются.
 - Для готового EF-source обязательны стабильная уникальная сортировка, строгий предикат продолжения и согласованный сравниватель checkpoint. Не заменяй keyset на offset, не добавляй скрытую клиентскую пагинацию или отключение проверки порядка. Порция читает один дополнительный элемент для проверки границы; checkpoint берется с последнего выданного, не дополнительного элемента.
 - Сохраняй разделение контрактов, runtime, fluent API и инфраструктуры. Новую абстракцию или проект вводи под конкретную ответственность и сценарий.
 - По умолчанию оставляй реализацию `internal`. Новый публичный тип, virtual-метод или изменение сигнатуры рассматривай как изменение API библиотеки.
@@ -113,6 +118,7 @@ BatchFlow - библиотека .NET для пакетной обработки
 
 - Используй существующие xUnit и FluentAssertions; не добавляй второй тестовый стек без необходимости.
 - Runtime, builder и logging проверяются в `BatchFlow.Core.Tests`; PostgreSQL-адаптер - в `BatchFlow.Postgres.Tests`; EF Core - в `BatchFlow.EntityFrameworkCore.Tests`. Переиспользуй doubles из `BatchFlow.Testing`. SQLite-тесты EF запускаются без внешней БД и не заменяют проверки других провайдеров; полный пример находится в `samples/BatchFlow.EntityFrameworkCore.Sample`.
+- DI-регистрации проверяются в `BatchFlow.DependencyInjection.Tests`; реальный PostgreSQL DI/resume - в существующей категории `PostgresIntegration`. При изменении публичного API запускай оба sample-проекта отдельно от solution: EF использует SQLite в памяти, PostgreSQL - только отдельную БД `_tests` и собственную уникальную схему.
 - Для новых тестов следуй именованию соседнего класса. Не переименовывай старые тесты только ради унификации.
 - Изменение поведения сопровождай тестом наблюдаемого результата; исправление дефекта - регрессионным сценарием. Проверяй существенные границы, а не зеркальное повторение реализации.
 - Для конкурентных тестов используй `TaskCompletionSource` с `RunContinuationsAsynchronously`, управляемые барьеры и ограниченные ожидания. Не полагайся на произвольный `Sleep` как доказательство порядка выполнения.
