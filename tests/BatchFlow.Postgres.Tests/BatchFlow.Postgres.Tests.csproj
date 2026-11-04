@@ -13,6 +13,7 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="FluentAssertions" Version="7.1.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.15" />
     <PackageReference Include="coverlet.collector" Version="6.0.4">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
@@ -22,5 +23,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\BatchFlow\BatchFlow.csproj" />
     <ProjectReference Include="..\..\src\BatchFlow.Postgres\BatchFlow.Postgres.csproj" />
+    <ProjectReference Include="..\..\src\BatchFlow.Postgres.DependencyInjection\BatchFlow.Postgres.DependencyInjection.csproj" />
   </ItemGroup>
 </Project>
