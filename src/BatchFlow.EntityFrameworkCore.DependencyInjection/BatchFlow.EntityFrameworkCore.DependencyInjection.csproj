@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\BatchFlow.EntityFrameworkCore\BatchFlow.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\BatchFlow.Extensions.DependencyInjection\BatchFlow.Extensions.DependencyInjection.csproj" />
+  </ItemGroup>
+</Project>
