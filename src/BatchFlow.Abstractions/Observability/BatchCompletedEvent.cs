@@ -1,3 +1,5 @@
+using BatchFlow.Abstractions.Results;
+
 namespace BatchFlow.Abstractions.Observability;
 
 /// <summary>
@@ -36,6 +38,9 @@ public sealed record BatchCompletedEvent<TCheckpoint> : BatchFlowEvent<TCheckpoi
     /// Возвращает количество элементов, завершившихся пропуском.
     /// </summary>
     public required int SkippedCount { get; init; }
+
+    /// <summary>Подробности исходов текущего пакета, переданные обработчиком или сформированные политикой пропуска.</summary>
+    public IReadOnlyList<BatchProcessingIssue> Issues { get; init; } = [];
 
     /// <summary>
     /// Возвращает метаданные источника, связанные с завершенным пакетом.
