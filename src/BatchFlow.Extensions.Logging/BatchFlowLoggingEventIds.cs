@@ -36,4 +36,10 @@ public static class BatchFlowLoggingEventIds
     /// Идентификатор лога о завершении job.
     /// </summary>
     public static readonly EventId JobCompleted = new(10_050, nameof(JobCompleted));
+
+    /// <summary>Идентификатор лога о разрешенной повторной попытке обработки.</summary>
+    public static readonly EventId ProcessingRetry = new(10_060, nameof(ProcessingRetry));
+
+    /// <summary>Идентификатор лога об окончательном пропуске элемента или части пакета.</summary>
+    public static readonly EventId ProcessingSkipped = new(10_070, nameof(ProcessingSkipped));
 }

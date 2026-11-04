@@ -45,6 +45,8 @@ public sealed class BatchFlowProgressLoggingTests
 
         summary.Status.Should().Be(JobCompletionStatus.Succeeded);
 
+        logger.Entries.Should().OnlyContain(entry => entry.Message.Contains($"RunId={summary.Job.RunId}"));
+
         logger.Entries.Select(entry => entry.EventId.Id).Should().Equal(
             BatchFlowLoggingEventIds.JobStarted.Id,
             BatchFlowLoggingEventIds.BatchStarted.Id,
@@ -130,6 +132,24 @@ public sealed class BatchFlowProgressLoggingTests
         summary.Status.Should().Be(JobCompletionStatus.Succeeded);
         logger.Entries.Should().Contain(entry => entry.EventId.Id == BatchFlowLoggingEventIds.JobStarted.Id);
         logger.Entries.Should().Contain(entry => entry.EventId.Id == BatchFlowLoggingEventIds.JobCompleted.Id);
+    }
+
+    [Fact]
+    public async Task Logging_should_include_retry_skip_reasons_exceptions_and_run_id()
+    {
+        var logger = new RecordingLogger(LogLevel.Trace);
+        var expected = new InvalidOperationException("transient failure");
+        var summary = await BatchJob.Named("retry-skip-logging").From(new LoggingResumableSource([1]))
+            .WithRetry(1).WithSkipOnFailure().WithProgressLogging(logger)
+            .RunEachAsync((_, _, _) => ValueTask.FromException<ProcessingResult>(expected));
+
+        summary.Status.Should().Be(JobCompletionStatus.CompletedWithSkips);
+        var retry = logger.Entries.Single(entry => entry.EventId == BatchFlowLoggingEventIds.ProcessingRetry);
+        var skip = logger.Entries.Single(entry => entry.EventId == BatchFlowLoggingEventIds.ProcessingSkipped);
+        retry.Exception.Should().BeSameAs(expected);
+        skip.Exception.Should().BeSameAs(expected);
+        skip.Message.Should().Contain("Reason=").And.Contain("SkippedCount=1");
+        logger.Entries.Should().OnlyContain(entry => entry.Message.Contains($"RunId={summary.Job.RunId}"));
     }
 
     private sealed class LoggingResumableSource(IReadOnlyList<int> items) : IBatchSource<int, int>

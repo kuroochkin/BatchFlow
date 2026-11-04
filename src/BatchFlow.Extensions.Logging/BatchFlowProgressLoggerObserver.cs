@@ -49,6 +49,14 @@ public sealed class BatchFlowProgressLoggerObserver<TCheckpoint> : IExecutionObs
                 LogBatchFailed(batchFailed);
                 break;
 
+            case ProcessingRetryEvent<TCheckpoint> retry:
+                LogRetry(retry);
+                break;
+
+            case ProcessingSkippedEvent<TCheckpoint> skipped:
+                LogSkipped(skipped);
+                break;
+
             case CheckpointSavedEvent<TCheckpoint> checkpointSaved:
                 LogCheckpointSaved(checkpointSaved);
                 break;
@@ -113,8 +121,9 @@ public sealed class BatchFlowProgressLoggerObserver<TCheckpoint> : IExecutionObs
             _logger.Log(
                 level,
                 BatchFlowLoggingEventIds.BatchStarted,
-                "Старт batch-а для job {JobName}. BatchSequence={BatchSequence}, ItemCount={ItemCount}, Attempt={Attempt}, SourceMetadata={SourceMetadata}",
+                "Старт batch-а для job {JobName}. RunId={RunId}, BatchSequence={BatchSequence}, ItemCount={ItemCount}, Attempt={Attempt}, SourceMetadata={SourceMetadata}",
                 @event.Job.JobName,
+                @event.Job.RunId,
                 @event.BatchSequence,
                 @event.ItemCount,
                 @event.Attempt,
@@ -126,8 +135,9 @@ public sealed class BatchFlowProgressLoggerObserver<TCheckpoint> : IExecutionObs
         _logger.Log(
             level,
             BatchFlowLoggingEventIds.BatchStarted,
-            "Старт batch-а для job {JobName}. BatchSequence={BatchSequence}, ItemCount={ItemCount}, Attempt={Attempt}",
+            "Старт batch-а для job {JobName}. RunId={RunId}, BatchSequence={BatchSequence}, ItemCount={ItemCount}, Attempt={Attempt}",
             @event.Job.JobName,
+            @event.Job.RunId,
             @event.BatchSequence,
             @event.ItemCount,
             @event.Attempt);
@@ -147,8 +157,9 @@ public sealed class BatchFlowProgressLoggerObserver<TCheckpoint> : IExecutionObs
             _logger.Log(
                 level,
                 BatchFlowLoggingEventIds.BatchCompleted,
-                "Завершен batch для job {JobName}. BatchSequence={BatchSequence}, ItemCount={ItemCount}, SucceededCount={SucceededCount}, SkippedCount={SkippedCount}, Attempt={Attempt}, SourceMetadata={SourceMetadata}",
+                "Завершен batch для job {JobName}. RunId={RunId}, BatchSequence={BatchSequence}, ItemCount={ItemCount}, SucceededCount={SucceededCount}, SkippedCount={SkippedCount}, Attempt={Attempt}, SourceMetadata={SourceMetadata}",
                 @event.Job.JobName,
+                @event.Job.RunId,
                 @event.BatchSequence,
                 @event.ItemCount,
                 @event.SucceededCount,
@@ -162,8 +173,9 @@ public sealed class BatchFlowProgressLoggerObserver<TCheckpoint> : IExecutionObs
         _logger.Log(
             level,
             BatchFlowLoggingEventIds.BatchCompleted,
-            "Завершен batch для job {JobName}. BatchSequence={BatchSequence}, ItemCount={ItemCount}, SucceededCount={SucceededCount}, SkippedCount={SkippedCount}, Attempt={Attempt}",
+            "Завершен batch для job {JobName}. RunId={RunId}, BatchSequence={BatchSequence}, ItemCount={ItemCount}, SucceededCount={SucceededCount}, SkippedCount={SkippedCount}, Attempt={Attempt}",
             @event.Job.JobName,
+            @event.Job.RunId,
             @event.BatchSequence,
             @event.ItemCount,
             @event.SucceededCount,
@@ -186,8 +198,9 @@ public sealed class BatchFlowProgressLoggerObserver<TCheckpoint> : IExecutionObs
                 level,
                 BatchFlowLoggingEventIds.BatchFailed,
                 @event.Exception,
-                "Ошибка batch-а для job {JobName}. BatchSequence={BatchSequence}, ItemCount={ItemCount}, Attempt={Attempt}, ItemIndex={ItemIndex}, SourceMetadata={SourceMetadata}",
+                "Ошибка batch-а для job {JobName}. RunId={RunId}, BatchSequence={BatchSequence}, ItemCount={ItemCount}, Attempt={Attempt}, ItemIndex={ItemIndex}, SourceMetadata={SourceMetadata}",
                 @event.Job.JobName,
+                @event.Job.RunId,
                 @event.BatchSequence,
                 @event.ItemCount,
                 @event.Attempt,
@@ -201,8 +214,9 @@ public sealed class BatchFlowProgressLoggerObserver<TCheckpoint> : IExecutionObs
             level,
             BatchFlowLoggingEventIds.BatchFailed,
             @event.Exception,
-            "Ошибка batch-а для job {JobName}. BatchSequence={BatchSequence}, ItemCount={ItemCount}, Attempt={Attempt}, ItemIndex={ItemIndex}",
+            "Ошибка batch-а для job {JobName}. RunId={RunId}, BatchSequence={BatchSequence}, ItemCount={ItemCount}, Attempt={Attempt}, ItemIndex={ItemIndex}",
             @event.Job.JobName,
+            @event.Job.RunId,
             @event.BatchSequence,
             @event.ItemCount,
             @event.Attempt,
@@ -223,8 +237,9 @@ public sealed class BatchFlowProgressLoggerObserver<TCheckpoint> : IExecutionObs
             _logger.Log(
                 level,
                 BatchFlowLoggingEventIds.CheckpointSaved,
-                "Сохранен checkpoint для job {JobName}. SequenceNumber={SequenceNumber}, CheckpointValue={CheckpointValue}",
+                "Сохранен checkpoint для job {JobName}. RunId={RunId}, SequenceNumber={SequenceNumber}, CheckpointValue={CheckpointValue}",
                 @event.Job.JobName,
+                @event.Job.RunId,
                 @event.Checkpoint.SequenceNumber,
                 FormatCheckpoint(@event.Checkpoint.Value));
 
@@ -234,8 +249,9 @@ public sealed class BatchFlowProgressLoggerObserver<TCheckpoint> : IExecutionObs
         _logger.Log(
             level,
             BatchFlowLoggingEventIds.CheckpointSaved,
-            "Сохранен checkpoint для job {JobName}. SequenceNumber={SequenceNumber}",
+            "Сохранен checkpoint для job {JobName}. RunId={RunId}, SequenceNumber={SequenceNumber}",
             @event.Job.JobName,
+            @event.Job.RunId,
             @event.Checkpoint.SequenceNumber);
     }
 
@@ -254,8 +270,9 @@ public sealed class BatchFlowProgressLoggerObserver<TCheckpoint> : IExecutionObs
                 level,
                 BatchFlowLoggingEventIds.JobCompleted,
                 @event.Exception,
-                "Завершен batch job {JobName}. Status={Status}, ProcessedBatchCount={ProcessedBatchCount}, SucceededItemCount={SucceededItemCount}, SkippedItemCount={SkippedItemCount}, LastCheckpointSequence={LastCheckpointSequence}, LastCheckpointValue={LastCheckpointValue}, Reason={Reason}",
+                "Завершен batch job {JobName}. RunId={RunId}, Status={Status}, ProcessedBatchCount={ProcessedBatchCount}, SucceededItemCount={SucceededItemCount}, SkippedItemCount={SkippedItemCount}, LastCheckpointSequence={LastCheckpointSequence}, LastCheckpointValue={LastCheckpointValue}, Reason={Reason}",
                 @event.Job.JobName,
+                @event.Job.RunId,
                 @event.Status,
                 @event.ProcessedBatchCount,
                 @event.SucceededItemCount,
@@ -271,14 +288,43 @@ public sealed class BatchFlowProgressLoggerObserver<TCheckpoint> : IExecutionObs
             level,
             BatchFlowLoggingEventIds.JobCompleted,
             @event.Exception,
-            "Завершен batch job {JobName}. Status={Status}, ProcessedBatchCount={ProcessedBatchCount}, SucceededItemCount={SucceededItemCount}, SkippedItemCount={SkippedItemCount}, LastCheckpointSequence={LastCheckpointSequence}, Reason={Reason}",
+            "Завершен batch job {JobName}. RunId={RunId}, Status={Status}, ProcessedBatchCount={ProcessedBatchCount}, SucceededItemCount={SucceededItemCount}, SkippedItemCount={SkippedItemCount}, LastCheckpointSequence={LastCheckpointSequence}, Reason={Reason}",
             @event.Job.JobName,
+            @event.Job.RunId,
             @event.Status,
             @event.ProcessedBatchCount,
             @event.SucceededItemCount,
             @event.SkippedItemCount,
             @event.LastPersistedCheckpoint?.SequenceNumber,
             @event.Reason);
+    }
+
+    private void LogRetry(ProcessingRetryEvent<TCheckpoint> @event)
+    {
+        var level = _options.ProcessingRetryLogLevel;
+        if (!ShouldLog(level))
+        {
+            return;
+        }
+
+        _logger.Log(level, BatchFlowLoggingEventIds.ProcessingRetry, @event.Exception,
+            "Повтор обработки job {JobName}. RunId={RunId}, BatchSequence={BatchSequence}, Scope={Scope}, ItemIndex={ItemIndex}, Attempt={Attempt}, Delay={Delay}, Reason={Reason}",
+            @event.Job.JobName, @event.Job.RunId, @event.BatchSequence, @event.Scope, @event.ItemIndex,
+            @event.Attempt, @event.Delay, @event.Reason);
+    }
+
+    private void LogSkipped(ProcessingSkippedEvent<TCheckpoint> @event)
+    {
+        var level = _options.ProcessingSkippedLogLevel;
+        if (!ShouldLog(level))
+        {
+            return;
+        }
+
+        _logger.Log(level, BatchFlowLoggingEventIds.ProcessingSkipped, @event.Exception,
+            "Пропуск обработки job {JobName}. RunId={RunId}, BatchSequence={BatchSequence}, Scope={Scope}, ItemIndex={ItemIndex}, Attempt={Attempt}, SkippedCount={SkippedCount}, Reason={Reason}",
+            @event.Job.JobName, @event.Job.RunId, @event.BatchSequence, @event.Scope, @event.ItemIndex,
+            @event.Attempt, @event.SkippedCount, @event.Reason);
     }
 
     private bool ShouldLog(LogLevel level) => level != LogLevel.None && _logger.IsEnabled(level);
