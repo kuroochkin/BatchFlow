@@ -31,20 +31,20 @@
   - PostgreSQL-адаптеры для источников данных и хранения контрольных точек;
   - зависит от `BatchFlow.Abstractions`, `BatchFlow.Core`, `BatchFlow` и `Npgsql`.
 - `BatchFlow.EntityFrameworkCore`
-  - каркас источника EF Core, фабрики контекстов, управление ресурсами и fluent-расширение;
+  - LINQ/keyset-source, фабрики контекстов, управление ресурсами и fluent-расширение;
   - зависит от `BatchFlow.Abstractions`, `BatchFlow.Core`, `BatchFlow` и `Microsoft.EntityFrameworkCore`;
-  - не содержит готового LINQ/keyset-источника и не выбирает EF-провайдер.
+  - освобождает контекст на каждую порцию готового source и не выбирает EF-провайдер; базовый класс для собственных источников сохраняет прежний lifetime.
 - `BatchFlow.Testing`
   - тестовые реализации, fake-адаптеры и вспомогательные утилиты для сценариев библиотеки;
   - напрямую зависит от `BatchFlow`, `BatchFlow.Core` и `BatchFlow.Abstractions`.
 
 ## Примеры и проверки
 
-`src/ConsoleTest` - исполняемый пример с in-memory source, retry, skip, checkpoint и логированием. `samples` пока содержит только README.
+`src/ConsoleTest` - исполняемый пример с in-memory source, retry, skip, checkpoint и логированием. `samples/BatchFlow.EntityFrameworkCore.Sample` - отдельный исполняемый пример с новым EF-source и SQLite в памяти; собирается отдельно от solution.
 
 `BatchFlow.Core.Tests` проверяет runtime, builder, retry, in-memory store и logging-адаптер. `BatchFlow.Postgres.Tests` проверяет options, source с подставным reader, serializer и fluent-расширения. В нем также есть категория `PostgresIntegration` для проверок с настоящей БД: [подготовка и запуск](../tests/BatchFlow.Postgres.Tests/Integration/README.md).
 
-`BatchFlow.EntityFrameworkCore.Tests` проверяет каркас EF-адаптера: владение контекстами, отмену, первичный сбой при ошибках очистки, повторное чтение, конкурентное использование внешнего контекста и подключение к стандартному runtime. Категория `EntityFrameworkCoreIntegration` использует настоящий EF-пул и запросы SQLite в памяти; внешний сервер БД не требуется. Эти проверки не заменяют будущие интеграционные тесты универсального LINQ/keyset-источника и других EF-провайдеров.
+`BatchFlow.EntityFrameworkCore.Tests` проверяет готовый EF-source, options и базовые точки расширения: keyset и resume, сортировку, SQL-лимит, владение контекстами, отмену, первичный сбой при ошибках очистки и независимость запусков. Категория `EntityFrameworkCoreIntegration` использует настоящий EF-пул и запросы SQLite в памяти; внешний сервер БД не требуется. Поведение других EF-провайдеров и реальных схем требует отдельных проверок.
 
 Общие настройки в `Directory.Build.props`: `net9.0`, nullable, implicit usings, генерация XML. Порядок изучения и соглашения кода: [архитектурное руководство](07-architecture-and-style.md). Использование библиотеки: [README](../README.md).
 

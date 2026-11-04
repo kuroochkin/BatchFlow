@@ -4,4 +4,6 @@
 
 Готовый консольный проект: `dotnet run --project src/ConsoleTest/ConsoleTest.csproj`. Он показывает in-memory source, retry, skip, checkpoint и `ILogger`.
 
-В этой папке пока нет самостоятельных исполняемых проектов. Команды README создают `samples/FirstJob` локально для знакомства с библиотекой.
+`dotnet run --project samples/BatchFlow.EntityFrameworkCore.Sample` запускает настоящий keyset-source через EF Core и SQLite в памяти. Пример показывает типизированные options, фабрику с пулом, короткий контекст на порцию и повторный запуск с checkpoint. Внешняя БД не нужна; пример не создает постоянных файлов и таблиц приложения. Его проект собирается отдельно от основного solution.
+
+Команды корневого README также позволяют создать `samples/FirstJob` локально для знакомства с библиотекой.

@@ -6,7 +6,7 @@ BatchFlow помогает запускать пакетную обработк�
 
 ## Текущее состояние
 
-Репозиторий собирается для `net9.0`. Реализованы fluent API, два режима обработки, фиксированный retry, stop/skip, приостановка через пользовательскую политику, контрольные точки, события, `ILogger` и PostgreSQL-адаптер. Добавлен [каркас адаптера EF Core](docs/10-entity-framework-core.md): получение `DbContext`, управление ресурсами, базовый источник и `FromEntityFrameworkCore`. Универсальное LINQ/keyset-чтение еще не реализовано. `BatchFlow.Extensions.DependencyInjection` и `BatchFlow.Extensions.Diagnostics` пока содержат только каркас проектов.
+Репозиторий собирается для `net9.0`. Реализованы fluent API, два режима обработки, фиксированный retry, stop/skip, приостановка через пользовательскую политику, контрольные точки, события, `ILogger` и PostgreSQL-адаптер. [EF Core source](docs/11-ef-core-source.md) читает по LINQ/keyset, поддерживает типизированные options, стабильный составной порядок и отдельный контекст на порцию. `BatchFlow.Extensions.DependencyInjection` и `BatchFlow.Extensions.Diagnostics` пока содержат только каркас проектов.
 
 Это развивающаяся библиотека. Известные ограничения и рекомендации перед эксплуатацией описаны в [разборе проекта](docs/08-review.md). Наличие проекта с именем пакета не подтверждает его публикацию в NuGet; инструкции ниже используют исходники из этого репозитория.
 
@@ -21,7 +21,7 @@ dotnet add samples/FirstJob/FirstJob.csproj reference src/BatchFlow/BatchFlow.cs
 
 Для собственного приложения укажите путь к `src/BatchFlow/BatchFlow.csproj` в `ProjectReference`. Фасад подтянет `Core` и `Abstractions` транзитивно. Для PostgreSQL дополнительно подключите `BatchFlow.Postgres`, для логов - `BatchFlow.Extensions.Logging` и провайдер логирования приложения.
 
-Для собственного источника на `DbContext` подключите `BatchFlow.EntityFrameworkCore`. EF-провайдер и подключение настраиваются в приложении; этот пакет не зависит от `BatchFlow.Postgres`. В текущем каркасе запросы реализуются в наследнике базового источника: [варианты подключения и ограничения](docs/10-entity-framework-core.md).
+Для чтения через `DbContext` подключите `BatchFlow.EntityFrameworkCore`. EF-провайдер и подключение настраиваются в приложении; этот пакет не зависит от `BatchFlow.Postgres`. В `.FromEntityFrameworkCore(options)` задаются базовый запрос, полный порядок и checkpoint без наследования source: [руководство](docs/11-ef-core-source.md). Исполняемый пример без внешней БД: `dotnet run --project samples/BatchFlow.EntityFrameworkCore.Sample`.
 
 ## Первый запуск
 
@@ -117,6 +117,7 @@ internal sealed class OrderSource(IReadOnlyList<Order> orders) : IBatchSource<Or
 | [Контрольные точки](docs/02-checkpoints.md) | Resume, повторная обработка, конкуренция, граница подтверждения |
 | [Ошибки и отмена](docs/03-errors-and-cancellation.md) | Retry, stop, skip, suspend, `CancellationToken` |
 | [PostgreSQL](docs/04-postgres.md) | Полный пример SQL, материализация, составной ключ, подключения |
+| [EF Core](docs/11-ef-core-source.md) | LINQ/keyset, options, короткий DbContext и ограничения восстановления |
 | [Логи и события](docs/05-observability.md) | `WithProgressLogging`, observer, уровни и ограничения |
 | [Расширение и тесты](docs/06-extending-and-testing.md) | Собственный source, processor, store и тестирование |
 | [Архитектура и стиль](docs/07-architecture-and-style.md) | Порядок изучения, зависимости, соглашения кода |
