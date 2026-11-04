@@ -5,7 +5,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\BatchFlow.EntityFrameworkCore\BatchFlow.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\src\BatchFlow.EntityFrameworkCore.DependencyInjection\BatchFlow.EntityFrameworkCore.DependencyInjection.csproj" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.15" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.15" />
   </ItemGroup>
 </Project>
