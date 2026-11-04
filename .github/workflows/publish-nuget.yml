@@ -1,0 +1,111 @@
+name: Публикация BatchFlowKit в NuGet.org
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Проверенный тег релиза, например v0.1.0-preview.1
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nuget-publish
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: batchflow
+          POSTGRES_PASSWORD: batchflow_ci
+          POSTGRES_DB: batchflow_tests
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U batchflow -d batchflow_tests"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      BATCHFLOW_POSTGRES_TESTS: Host=127.0.0.1;Port=5432;Database=batchflow_tests;Username=batchflow;Password=batchflow_ci
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 9.0.x
+      - name: Проверка тега, версии и принадлежности основной ветке
+        id: release
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]
+          [[ "$(git rev-parse HEAD)" == "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" ]]
+          git merge-base --is-ancestor HEAD "origin/$DEFAULT_BRANCH"
+          [[ -z "$(git status --porcelain)" ]]
+          version="$(dotnet msbuild src/BatchFlow/BatchFlow.csproj -nologo -getProperty:Version)"
+          [[ "$RELEASE_TAG" == "v$version" ]]
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+      - name: Сборка и полная проверка кандидатов
+        run: bash eng/pack.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nuget-release
+          path: artifacts/packages/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: nuget
+    env:
+      NUGET_USER: ${{ vars.NUGET_USER || 'kuroochkin' }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 9.0.x
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: nuget-release
+          path: packages
+      - name: Проверка имени владельца NuGet
+        run: test -n "$NUGET_USER"
+      - name: Краткоживущий ключ через Trusted Publishing
+        uses: NuGet/login@ebc737b6fc418a6ca0073cf116ec8dc156d8b81e # v1
+        id: login
+        with:
+          user: ${{ env.NUGET_USER }}
+      - name: Публикация в порядке зависимостей
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+          RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          packages=(
+            BatchFlowKit.Abstractions BatchFlowKit.Core BatchFlowKit
+            BatchFlowKit.Extensions.Logging BatchFlowKit.Extensions.DependencyInjection
+            BatchFlowKit.Postgres BatchFlowKit.EntityFrameworkCore
+            BatchFlowKit.Postgres.DependencyInjection BatchFlowKit.EntityFrameworkCore.DependencyInjection
+            BatchFlowKit.Testing
+          )
+          for package in "${packages[@]}"; do
+            dotnet nuget push "packages/$package.$RELEASE_VERSION.nupkg" \
+              --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          done

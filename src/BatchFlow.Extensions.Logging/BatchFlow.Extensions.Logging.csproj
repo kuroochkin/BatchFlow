@@ -6,4 +6,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.15" />
   </ItemGroup>
+  <PropertyGroup>
+    <IsBatchFlowPackage>true</IsBatchFlowPackage>
+    <Description>Структурированное логирование событий BatchFlowKit через Microsoft.Extensions.Logging.</Description>
+  </PropertyGroup>
 </Project>

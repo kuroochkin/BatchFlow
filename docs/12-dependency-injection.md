@@ -14,7 +14,7 @@ DI-слой связывает существующие адаптеры с пр
 | `BatchFlow.Postgres.DependencyInjection` | Регистрации Npgsql-пулов, scoped source и checkpoint store, привязку данных конфигурации |
 | `BatchFlow.EntityFrameworkCore.DependencyInjection` | Scoped source поверх штатного `IDbContextFactory<TContext>` |
 
-Базовые адаптеры не требуют этих пакетов. EF DI не подключает PostgreSQL, PostgreSQL DI не подключает EF. Пакеты адаптеров транзитивно подключают общий DI-пакет. В текущем репозитории используйте `ProjectReference` на нужный проект; эти инструкции не подразумевают, что пакеты уже опубликованы в NuGet.
+Базовые адаптеры не требуют этих пакетов. EF DI не подключает PostgreSQL, PostgreSQL DI не подключает EF. Пакеты адаптеров транзитивно подключают общий DI-пакет. Таблица содержит имена исходных проектов; публичные NuGet ID используют префикс `BatchFlowKit` вместо `BatchFlow`, например `BatchFlowKit.Postgres.DependencyInjection`. C#-пространства имен остаются прежними. До публикации используйте `ProjectReference`; состояние и установка пакетов описаны в [руководстве релиза](13-nuget-publishing.md).
 
 Расширения находятся в пространствах имен соответствующих пакетов. Для общего `AddBatchFlow` нужен `using BatchFlow.Extensions.DependencyInjection;`, для PostgreSQL - `using BatchFlow.Postgres.DependencyInjection;`, для EF - `using BatchFlow.EntityFrameworkCore.DependencyInjection;`.
 

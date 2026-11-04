@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="BatchFlowKit" Version="$(Version)" />
+    <PackageReference Include="BatchFlowKit.Postgres.DependencyInjection" Version="$(Version)" />
+    <PackageReference Include="BatchFlowKit.EntityFrameworkCore.DependencyInjection" Version="$(Version)" />
+    <PackageReference Include="BatchFlowKit.Extensions.Logging" Version="$(Version)" />
+    <PackageReference Include="BatchFlowKit.Testing" Version="$(Version)" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.15" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.15" />
+  </ItemGroup>
+</Project>

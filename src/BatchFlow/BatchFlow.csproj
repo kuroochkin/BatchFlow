@@ -3,4 +3,8 @@
     <ProjectReference Include="..\BatchFlow.Abstractions\BatchFlow.Abstractions.csproj" />
     <ProjectReference Include="..\BatchFlow.Core\BatchFlow.Core.csproj" />
   </ItemGroup>
+  <PropertyGroup>
+    <IsBatchFlowPackage>true</IsBatchFlowPackage>
+    <Description>Fluent API пакетной обработки .NET: RunEachAsync, RunBatchAsync, retry и возобновление по контрольной точке.</Description>
+  </PropertyGroup>
 </Project>

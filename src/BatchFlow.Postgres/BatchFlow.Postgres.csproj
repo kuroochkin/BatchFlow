@@ -8,4 +8,8 @@
   <ItemGroup>
     <PackageReference Include="Npgsql" Version="10.0.3" />
   </ItemGroup>
+  <PropertyGroup>
+    <IsBatchFlowPackage>true</IsBatchFlowPackage>
+    <Description>PostgreSQL-адаптер BatchFlowKit: SQL/keyset-чтение через Npgsql и постоянное хранилище контрольных точек.</Description>
+  </PropertyGroup>
 </Project>

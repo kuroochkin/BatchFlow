@@ -1,4 +1,4 @@
-# BatchFlow
+# BatchFlowKit
 
 BatchFlow помогает запускать пакетную обработку в .NET: читать источник порциями, обрабатывать элементы или пакеты, повторять неудачные вызовы и сохранять позицию для следующего запуска.
 
@@ -8,9 +8,19 @@ BatchFlow помогает запускать пакетную обработк�
 
 Репозиторий собирается для `net9.0`. Реализованы fluent API, два режима обработки, фиксированный retry, stop/skip, приостановка через пользовательскую политику, контрольные точки, события, `ILogger` и PostgreSQL-адаптер. [EF Core source](docs/11-ef-core-source.md) читает по LINQ/keyset, поддерживает типизированные options, стабильный составной порядок и отдельный контекст на порцию. [Необязательные DI-пакеты](docs/12-dependency-injection.md) регистрируют runtime, PostgreSQL и EF Core с явными правилами владения. `BatchFlow.Extensions.Diagnostics` пока содержит только каркас проекта.
 
-Это развивающаяся библиотека. Известные ограничения и рекомендации перед эксплуатацией описаны в [разборе проекта](docs/08-review.md). Наличие проекта с именем пакета не подтверждает его публикацию в NuGet; инструкции ниже используют исходники из этого репозитория.
+Это развивающаяся библиотека. Известные ограничения и рекомендации перед эксплуатацией описаны в [разборе проекта](docs/08-review.md). Публичные NuGet-имена начинаются с `BatchFlowKit`; C#-пространства имен, DLL и исходные проекты сохраняют `BatchFlow`. Кандидат первого выпуска - `0.1.0-preview.1`, лицензия [MIT](LICENSE). Наличие локальных пакетов не подтверждает публикацию в NuGet.org.
 
 ## Подключение
+
+После публикации и индексации предварительного выпуска основной пакет устанавливается так:
+
+```sh
+dotnet add package BatchFlowKit --version 0.1.0-preview.1
+```
+
+Он подтягивает `BatchFlowKit.Core` и `BatchFlowKit.Abstractions`; `using BatchFlow` менять не нужно. Имена дополнительных пакетов и установка описаны в [README пакетов](eng/nuget/README.md). Подготовка и проверка релиза: [публикация в NuGet.org](docs/13-nuget-publishing.md).
+
+До публикации можно подключить исходники:
 
 Для сборки репозитория нужен .NET 9 SDK, совместимый с [global.json](global.json). Из корня репозитория можно создать пример:
 
@@ -121,6 +131,7 @@ internal sealed class OrderSource(IReadOnlyList<Order> orders) : IBatchSource<Or
 | [PostgreSQL](docs/04-postgres.md) | Полный пример SQL, материализация, составной ключ, подключения |
 | [EF Core](docs/11-ef-core-source.md) | LINQ/keyset, options, короткий DbContext и ограничения восстановления |
 | [Dependency Injection](docs/12-dependency-injection.md) | Регистрация адаптеров, FromDbContext, scoped lifetime и владение ресурсами |
+| [NuGet и публикация](docs/13-nuget-publishing.md) | BatchFlowKit, версия, MIT, упаковка, проверка установки и Trusted Publishing |
 | [Логи и события](docs/05-observability.md) | `WithProgressLogging`, observer, уровни и ограничения |
 | [Расширение и тесты](docs/06-extending-and-testing.md) | Собственный source, processor, store и тестирование |
 | [Архитектура и стиль](docs/07-architecture-and-style.md) | Порядок изучения, зависимости, соглашения кода |

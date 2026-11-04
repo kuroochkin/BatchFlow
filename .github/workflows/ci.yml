@@ -1,0 +1,42 @@
+name: Проверка BatchFlowKit
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: batchflow
+          POSTGRES_PASSWORD: batchflow_ci
+          POSTGRES_DB: batchflow_tests
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U batchflow -d batchflow_tests"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      BATCHFLOW_POSTGRES_TESTS: Host=127.0.0.1;Port=5432;Database=batchflow_tests;Username=batchflow;Password=batchflow_ci
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 9.0.x
+      - name: Сборка, тесты, упаковка и проверка установки
+        run: bash eng/pack.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nuget-candidates
+          path: artifacts/packages/*
+          if-no-files-found: error
+          retention-days: 14
