@@ -272,12 +272,13 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
             {
                 switch (notification)
                 {
-                    case BatchWorkerProgressNotification<TItem, TCheckpoint> progress when terminalFailure is null:
+                    // Уже произошедшие события нужны и после сбоя: ранний пакет еще может получить подтверждение.
+                    case BatchWorkerProgressNotification<TItem, TCheckpoint> progress:
                     {
                         await PublishAsync(job.Observers, progress.Event, cancellationToken);
                         break;
                     }
-                    case BatchWorkerStartedNotification<TItem, TCheckpoint> started when terminalFailure is null:
+                    case BatchWorkerStartedNotification<TItem, TCheckpoint> started:
                     {
                         await PublishBatchStartedAsync(job.Observers, runtime.TimeProvider, started.BufferedBatch,
                             started.Context, cancellationToken);

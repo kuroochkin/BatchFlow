@@ -5,6 +5,7 @@ using BatchFlow.Abstractions.Observability;
 using BatchFlow.Abstractions.Results;
 using BatchFlow.Abstractions.Sources;
 using BatchFlow.Testing.Observability;
+using BatchFlow.Testing.Failures;
 using BatchFlow.Testing.Sources;
 using FluentAssertions;
 using Xunit;
@@ -13,6 +14,30 @@ namespace BatchFlow.Core.Tests.Execution;
 
 public sealed class ProcessingObservabilityTests
 {
+    [Fact]
+    public async Task Queued_progress_should_be_delivered_after_another_worker_reports_terminal_failure()
+    {
+        var observer = new RecordingExecutionObserver<int>();
+        var fatal = new InvalidOperationException("first batch stopped");
+        var skipped = new InvalidOperationException("second batch skipped");
+        var policy = new DelegateFailurePolicy<int, int>((context, _) => ValueTask.FromResult(
+            context.BatchSequence == 1
+                ? FailureDecision.Stop()
+                : context.Attempt == 1 ? FailureDecision.Retry() : FailureDecision.Skip("skip-reason")));
+        var source = new DelegateBatchSource<int, int>((_, _) => ImmediateBatchesAsync());
+        var summary = await BatchJob.Named("queued-progress-after-stop").From(source)
+            .WithPrefetchCapacity(2).WithDegreeOfParallelism(2).WithFailurePolicy(policy).WithObserver(observer)
+            .RunBatchAsync((_, context, _) => ValueTask.FromException(context.BatchSequence == 1 ? fatal : skipped));
+
+        summary.Status.Should().Be(JobCompletionStatus.Failed);
+        summary.Exception.Should().BeSameAs(fatal);
+        observer.Events.OfType<BatchStartedEvent<int>>().Select(@event => @event.BatchSequence).Should().Equal(1, 2);
+        observer.Events.OfType<ProcessingRetryEvent<int>>().Should().ContainSingle()
+            .Which.Exception.Should().BeSameAs(skipped);
+        observer.Events.OfType<ProcessingSkippedEvent<int>>().Should().ContainSingle()
+            .Which.Exception.Should().BeSameAs(skipped);
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(3)]
@@ -104,6 +129,14 @@ public sealed class ProcessingObservabilityTests
 
     private static IBatchSource<int, int> Source(int count, int[]? items = null) => new DelegateBatchSource<int, int>(
         (_, token) => ReadAsync(count, items, token));
+
+    private static async IAsyncEnumerable<SourceBatch<int, int>> ImmediateBatchesAsync()
+    {
+        // Синхронное чтение позволяет обоим workers поставить исходы в очередь до начала ее обработки.
+        await Task.CompletedTask;
+        yield return new SourceBatch<int, int> { Items = [1], Checkpoint = 1 };
+        yield return new SourceBatch<int, int> { Items = [2], Checkpoint = 2 };
+    }
 
     private static async IAsyncEnumerable<SourceBatch<int, int>> ReadAsync(
         int count, int[]? items, [EnumeratorCancellation] CancellationToken token)
