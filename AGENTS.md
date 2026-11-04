@@ -24,6 +24,7 @@ BatchFlow - библиотека .NET для пакетной обработки
 | `BatchFlow.Core` | Execution engine, очереди, workers и checkpoint coordinator; зависит только от `Abstractions` |
 | `BatchFlow` | Публичный фасад, fluent builder, запуск, встроенные политики и in-memory store |
 | `BatchFlow.Postgres` | SQL-чтение, Npgsql, подключения, материализация и PostgreSQL checkpoint store |
+| `BatchFlow.EntityFrameworkCore` | Каркас EF-источника, получение и жизненный цикл `DbContext`; без конкретного провайдера |
 | `BatchFlow.Extensions.Logging` | Адаптация runtime-событий в `ILogger` |
 | `BatchFlow.Testing` | Тестовые реализации и фиксация вызовов |
 
@@ -31,6 +32,7 @@ BatchFlow - библиотека .NET для пакетной обработки
 
 - Не добавляй в Core или Abstractions зависимости от Npgsql, ORM, `ILogger`, DI, OpenTelemetry и конкретных хранилищ.
 - Пользовательские удобные методы размещай в фасаде или extension-классе соответствующего адаптера. Не дублируй execution flow в адаптерах.
+- EF-адаптер не должен зависеть от `BatchFlow.Postgres` или навязывать EF-провайдер. Фабричные контексты освобождает источник, готовый контекст остается внешним. Готового универсального LINQ/keyset-источника пока нет; границы описаны в `docs/10-entity-framework-core.md`.
 - Сохраняй разделение контрактов, runtime, fluent API и инфраструктуры. Новую абстракцию или проект вводи под конкретную ответственность и сценарий.
 - По умолчанию оставляй реализацию `internal`. Новый публичный тип, virtual-метод или изменение сигнатуры рассматривай как изменение API библиотеки.
 
@@ -109,7 +111,7 @@ BatchFlow - библиотека .NET для пакетной обработки
 ## Тесты и проверка изменений
 
 - Используй существующие xUnit и FluentAssertions; не добавляй второй тестовый стек без необходимости.
-- Runtime, builder и logging проверяются в `BatchFlow.Core.Tests`; PostgreSQL-адаптер - в `BatchFlow.Postgres.Tests`. Переиспользуй doubles из `BatchFlow.Testing`.
+- Runtime, builder и logging проверяются в `BatchFlow.Core.Tests`; PostgreSQL-адаптер - в `BatchFlow.Postgres.Tests`; каркас EF Core - в `BatchFlow.EntityFrameworkCore.Tests`. Переиспользуй doubles из `BatchFlow.Testing`.
 - Для новых тестов следуй именованию соседнего класса. Не переименовывай старые тесты только ради унификации.
 - Изменение поведения сопровождай тестом наблюдаемого результата; исправление дефекта - регрессионным сценарием. Проверяй существенные границы, а не зеркальное повторение реализации.
 - Для конкурентных тестов используй `TaskCompletionSource` с `RunContinuationsAsynchronously`, управляемые барьеры и ограниченные ожидания. Не полагайся на произвольный `Sleep` как доказательство порядка выполнения.
@@ -125,6 +127,7 @@ dotnet restore BatchFlow.sln
 dotnet build BatchFlow.sln --no-restore
 dotnet test tests/BatchFlow.Core.Tests/BatchFlow.Core.Tests.csproj --no-restore
 dotnet test tests/BatchFlow.Postgres.Tests/BatchFlow.Postgres.Tests.csproj --no-restore
+dotnet test tests/BatchFlow.EntityFrameworkCore.Tests/BatchFlow.EntityFrameworkCore.Tests.csproj --no-restore
 dotnet test BatchFlow.sln --no-restore
 ```
 
