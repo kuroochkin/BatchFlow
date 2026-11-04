@@ -325,6 +325,8 @@ public sealed class BatchJobExecutionEngineTests
         observer.Events.Select(@event => @event.GetType()).Should().Equal(
             typeof(JobStartedEvent<long>),
             typeof(BatchStartedEvent<long>),
+            typeof(ProcessingRetryEvent<long>),
+            typeof(ProcessingRetryEvent<long>),
             typeof(BatchFailedEvent<long>),
             typeof(JobCompletedEvent<long>));
 
