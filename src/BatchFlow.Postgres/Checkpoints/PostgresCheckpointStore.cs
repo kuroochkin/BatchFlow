@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using BatchFlow.Abstractions.Checkpoints;
 using BatchFlow.Postgres.Internal;
@@ -19,19 +20,37 @@ public sealed class PostgresCheckpointStore<TCheckpoint> : ICheckpointStore<TChe
 
     private readonly IPostgresConnectionFactory _connectionFactory;
     private readonly IPostgresCheckpointSerializer<TCheckpoint> _serializer;
-    private readonly string _qualifiedTableName;
+    private readonly string _ensureStorageCommandText;
+    private readonly string _loadCommandText;
+    private readonly string _insertCommandText;
+    private readonly string _updateCommandText;
 
     /// <summary>
     /// Инициализирует PostgreSQL-хранилище контрольных точек.
     /// </summary>
     /// <param name="options">Параметры подключения и структуры хранения.</param>
     /// <param name="serializer">Сериализатор значения контрольной точки. Если значение не задано, используется JSON-сериализация по умолчанию.</param>
+    /// <exception cref="ArgumentException">
+    /// Передано готовое соединение с владением <see cref="PostgresConnectionOwnership.AdapterOwned" />
+    /// или пустое имя схемы либо таблицы. Для повторных операций используйте строку подключения,
+    /// <c>NpgsqlDataSource</c>, фабрику либо готовое соединение с внешним владением.
+    /// </exception>
     public PostgresCheckpointStore(
         PostgresCheckpointStoreOptions options,
         IPostgresCheckpointSerializer<TCheckpoint>? serializer = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(options.Connection);
+
+        if (options.Connection.Mode == PostgresConnectionMode.ExistingConnection &&
+            options.Connection.ConnectionOwnership == PostgresConnectionOwnership.AdapterOwned)
+        {
+            throw new ArgumentException(
+                "Checkpoint store не поддерживает готовое соединение с владением AdapterOwned: " +
+                "оно освобождается после первой операции и не подходит для повторных загрузок и сохранений. " +
+                "Используйте строку подключения, NpgsqlDataSource, фабрику или готовое соединение с владением External.",
+                nameof(options));
+        }
 
         if (options.CommandTimeoutSeconds is <= 0)
         {
@@ -53,8 +72,17 @@ public sealed class PostgresCheckpointStore<TCheckpoint> : ICheckpointStore<TChe
         Options = options;
         _serializer = serializer ?? new JsonPostgresCheckpointSerializer<TCheckpoint>();
         _connectionFactory = PostgresConnectionFactoryResolver.Create(options.Connection);
-        _qualifiedTableName =
-            $"{PostgresSqlIdentifier.Quote(options.SchemaName)}.{PostgresSqlIdentifier.Quote(options.TableName)}";
+        var quotedSchemaName = PostgresSqlIdentifier.Quote(options.SchemaName);
+        var qualifiedTableName = $"{quotedSchemaName}.{PostgresSqlIdentifier.Quote(options.TableName)}";
+
+        _ensureStorageCommandText = string.Format(
+            CultureInfo.InvariantCulture,
+            PostgresCheckpointQueries.EnsureStorage,
+            quotedSchemaName,
+            qualifiedTableName);
+        _loadCommandText = string.Format(CultureInfo.InvariantCulture, PostgresCheckpointQueries.Load, qualifiedTableName);
+        _insertCommandText = string.Format(CultureInfo.InvariantCulture, PostgresCheckpointQueries.Insert, qualifiedTableName);
+        _updateCommandText = string.Format(CultureInfo.InvariantCulture, PostgresCheckpointQueries.Update, qualifiedTableName);
     }
 
     /// <summary>
@@ -69,21 +97,9 @@ public sealed class PostgresCheckpointStore<TCheckpoint> : ICheckpointStore<TChe
     /// <param name="cancellationToken">Токен отмены.</param>
     public async ValueTask EnsureStorageAsync(CancellationToken cancellationToken = default)
     {
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = CreateCommand(
-            connection,
-            $"""
-            create schema if not exists {PostgresSqlIdentifier.Quote(Options.SchemaName)};
-            create table if not exists {_qualifiedTableName}
-            (
-                checkpoint_id text primary key,
-                checkpoint_value jsonb not null,
-                sequence_number bigint null,
-                concurrency_token text not null,
-                saved_at timestamptz not null,
-                metadata jsonb not null
-            );
-            """);
+        await using var connectionLease = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        var connection = connectionLease.Connection;
+        await using var command = CreateCommand(connection, _ensureStorageCommandText);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -97,14 +113,9 @@ public sealed class PostgresCheckpointStore<TCheckpoint> : ICheckpointStore<TChe
 
         try
         {
-            await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-            await using var command = CreateCommand(
-                connection,
-                $"""
-                select checkpoint_value, sequence_number, concurrency_token, saved_at, metadata
-                from {_qualifiedTableName}
-                where checkpoint_id = @checkpoint_id;
-                """);
+            await using var connectionLease = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+            var connection = connectionLease.Connection;
+            await using var command = CreateCommand(connection, _loadCommandText);
 
             command.Parameters.AddWithValue("checkpoint_id", NpgsqlDbType.Text, checkpointId);
 
@@ -149,44 +160,13 @@ public sealed class PostgresCheckpointStore<TCheckpoint> : ICheckpointStore<TChe
 
         try
         {
-            await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+            await using var connectionLease = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+            var connection = connectionLease.Connection;
             await using var command = CreateCommand(
                 connection,
                 expectedConcurrencyToken is null
-                    ? $"""
-                       insert into {_qualifiedTableName}
-                       (
-                           checkpoint_id,
-                           checkpoint_value,
-                           sequence_number,
-                           concurrency_token,
-                           saved_at,
-                           metadata
-                       )
-                       values
-                       (
-                           @checkpoint_id,
-                           @checkpoint_value,
-                           @sequence_number,
-                           @concurrency_token,
-                           @saved_at,
-                           @metadata
-                       )
-                       on conflict (checkpoint_id) do nothing
-                       returning checkpoint_id;
-                       """
-                    : $"""
-                       update {_qualifiedTableName}
-                       set
-                           checkpoint_value = @checkpoint_value,
-                           sequence_number = @sequence_number,
-                           concurrency_token = @concurrency_token,
-                           saved_at = @saved_at,
-                           metadata = @metadata
-                       where checkpoint_id = @checkpoint_id
-                         and concurrency_token = @expected_concurrency_token
-                       returning checkpoint_id;
-                       """);
+                    ? _insertCommandText
+                    : _updateCommandText);
 
             command.Parameters.AddWithValue("checkpoint_id", NpgsqlDbType.Text, checkpointId);
             command.Parameters.AddWithValue("checkpoint_value", NpgsqlDbType.Jsonb, _serializer.Serialize(savedCheckpoint.Value));

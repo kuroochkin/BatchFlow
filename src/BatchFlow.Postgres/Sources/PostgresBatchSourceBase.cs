@@ -66,6 +66,8 @@ public abstract class PostgresBatchSourceBase<TItem, TCheckpoint> : IBatchSource
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(context.RequestedBatchSize);
+        cancellationToken.ThrowIfCancellationRequested();
 
         await using var connectionLease = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var connection = connectionLease.Connection;

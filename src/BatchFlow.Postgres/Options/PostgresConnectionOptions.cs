@@ -12,12 +12,16 @@ public sealed class PostgresConnectionOptions
         PostgresConnectionMode mode,
         string? connectionString,
         NpgsqlDataSource? dataSource,
-        Func<CancellationToken, ValueTask<NpgsqlConnection>>? connectionFactory)
+        Func<CancellationToken, ValueTask<NpgsqlConnection>>? connectionFactory,
+        NpgsqlConnection? connection,
+        PostgresConnectionOwnership? connectionOwnership)
     {
         Mode = mode;
         ConnectionString = connectionString;
         DataSource = dataSource;
         ConnectionFactory = connectionFactory;
+        Connection = connection;
+        ConnectionOwnership = connectionOwnership;
     }
 
     /// <summary>
@@ -42,6 +46,16 @@ public sealed class PostgresConnectionOptions
     public Func<CancellationToken, ValueTask<NpgsqlConnection>>? ConnectionFactory { get; }
 
     /// <summary>
+    /// Возвращает готовое подключение, если выбран режим <see cref="PostgresConnectionMode.ExistingConnection" />.
+    /// </summary>
+    public NpgsqlConnection? Connection { get; }
+
+    /// <summary>
+    /// Возвращает модель владения готовым подключением, если выбран режим <see cref="PostgresConnectionMode.ExistingConnection" />.
+    /// </summary>
+    public PostgresConnectionOwnership? ConnectionOwnership { get; }
+
+    /// <summary>
     /// Создает опции подключения на основе строки подключения PostgreSQL.
     /// </summary>
     /// <param name="connectionString">Строка подключения к PostgreSQL.</param>
@@ -54,7 +68,9 @@ public sealed class PostgresConnectionOptions
             PostgresConnectionMode.ConnectionString,
             connectionString,
             dataSource: null,
-            connectionFactory: null);
+            connectionFactory: null,
+            connection: null,
+            connectionOwnership: null);
     }
 
     /// <summary>
@@ -71,7 +87,9 @@ public sealed class PostgresConnectionOptions
             PostgresConnectionMode.DataSource,
             connectionString: null,
             dataSource,
-            connectionFactory: null);
+            connectionFactory: null,
+            connection: null,
+            connectionOwnership: null);
     }
 
     /// <summary>
@@ -102,6 +120,41 @@ public sealed class PostgresConnectionOptions
             PostgresConnectionMode.ConnectionFactory,
             connectionString: null,
             dataSource: null,
-            connectionFactory);
+            connectionFactory,
+            connection: null,
+            connectionOwnership: null);
+    }
+
+    /// <summary>
+    /// Создает опции подключения на основе уже созданного экземпляра <c>NpgsqlConnection</c>.
+    /// Этот вариант нужен для сценариев, где жизненный цикл подключения контролируется отдельно от BatchFlow.
+    /// </summary>
+    /// <param name="connection">Готовый экземпляр подключения PostgreSQL.</param>
+    /// <param name="ownership">Модель владения переданным подключением.</param>
+    /// <returns>Сконфигурированные опции подключения.</returns>
+    /// <remarks>
+    /// В режиме <see cref="PostgresConnectionOwnership.External" /> вызывающий код заранее открывает соединение
+    /// и самостоятельно освобождает его. Режим <see cref="PostgresConnectionOwnership.AdapterOwned" />
+    /// подходит только для одного перечисления источника и не допускается в хранилище контрольных точек.
+    /// Для повторных запусков с владением адаптера используйте фабрику, строку подключения или <c>NpgsqlDataSource</c>.
+    /// </remarks>
+    public static PostgresConnectionOptions FromConnection(
+        NpgsqlConnection connection,
+        PostgresConnectionOwnership ownership = PostgresConnectionOwnership.External)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        if (!Enum.IsDefined(ownership))
+        {
+            throw new ArgumentOutOfRangeException(nameof(ownership), ownership, "Неизвестная модель владения соединением.");
+        }
+
+        return new PostgresConnectionOptions(
+            PostgresConnectionMode.ExistingConnection,
+            connectionString: null,
+            dataSource: null,
+            connectionFactory: null,
+            connection,
+            ownership);
     }
 }

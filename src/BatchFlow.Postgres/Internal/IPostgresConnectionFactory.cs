@@ -4,5 +4,5 @@ namespace BatchFlow.Postgres.Internal;
 
 internal interface IPostgresConnectionFactory
 {
-    ValueTask<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken);
+    ValueTask<IPostgresConnectionLease> OpenConnectionAsync(CancellationToken cancellationToken);
 }

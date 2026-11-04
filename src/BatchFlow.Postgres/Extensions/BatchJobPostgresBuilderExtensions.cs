@@ -1,5 +1,6 @@
 using BatchFlow.Builders;
 using BatchFlow.Postgres.Checkpoints;
+using BatchFlow.Postgres.Options;
 using BatchFlow.Postgres.Sources;
 
 namespace BatchFlow.Postgres.Extensions;
@@ -24,6 +25,23 @@ public static class BatchJobPostgresBuilderExtensions
         ArgumentNullException.ThrowIfNull(stage);
         ArgumentNullException.ThrowIfNull(source);
         return stage.From(source);
+    }
+
+    /// <summary>
+    /// Создает production-ready PostgreSQL-источник прямо из options и сразу подключает его к fluent pipeline.
+    /// </summary>
+    /// <typeparam name="TItem">Тип элементов, возвращаемых источником.</typeparam>
+    /// <typeparam name="TCheckpoint">Тип контрольной точки, используемой источником.</typeparam>
+    /// <param name="stage">Стадия выбора источника данных.</param>
+    /// <param name="options">Параметры PostgreSQL-источника.</param>
+    /// <returns>Стадию builder для дальнейшей настройки задачи.</returns>
+    public static IResumableBatchJobBuilder<TItem, TCheckpoint> FromPostgres<TItem, TCheckpoint>(
+        this IBatchJobSourceSelectionStage stage,
+        PostgresBatchSourceOptions<TItem, TCheckpoint> options)
+    {
+        ArgumentNullException.ThrowIfNull(stage);
+        ArgumentNullException.ThrowIfNull(options);
+        return stage.From(new PostgresBatchSource<TItem, TCheckpoint>(options));
     }
 
     /// <summary>

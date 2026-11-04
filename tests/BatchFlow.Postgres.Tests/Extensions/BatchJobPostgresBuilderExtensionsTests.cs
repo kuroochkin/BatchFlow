@@ -7,6 +7,7 @@ using BatchFlow.Postgres.Options;
 using BatchFlow.Postgres.Sources;
 using FluentAssertions;
 using Npgsql;
+using NpgsqlTypes;
 using Xunit;
 
 namespace BatchFlow.Postgres.Tests.Extensions;
@@ -16,7 +17,7 @@ public sealed class BatchJobPostgresBuilderExtensionsTests
     [Fact]
     public void FromPostgres_should_register_postgres_source_in_job_definition()
     {
-        var source = new FakePostgresSource(CreateSourceOptions());
+        var source = new PostgresBatchSource<int, long>(CreateSourceOptions());
 
         var job = BatchJob
             .Named("orders-sync")
@@ -30,7 +31,7 @@ public sealed class BatchJobPostgresBuilderExtensionsTests
     [Fact]
     public void WithPostgresCheckpoint_should_register_postgres_store_and_checkpoint_id()
     {
-        var source = new FakePostgresSource(CreateSourceOptions());
+        var source = new PostgresBatchSource<int, long>(CreateSourceOptions());
         var checkpointStore = new PostgresCheckpointStore<long>(CreateCheckpointStoreOptions());
 
         var job = BatchJob
@@ -44,12 +45,29 @@ public sealed class BatchJobPostgresBuilderExtensionsTests
         job.CheckpointId.Should().Be("orders-checkpoint");
     }
 
-    private static PostgresBatchSourceOptions CreateSourceOptions() =>
+    [Fact]
+    public void FromPostgres_options_overload_should_create_source_and_register_it_in_job_definition()
+    {
+        var options = CreateSourceOptions();
+
+        var job = BatchJob
+            .Named("orders-sync")
+            .FromPostgres(options)
+            .ProcessEach((_, _, _) => ValueTask.CompletedTask)
+            .Build();
+
+        job.Source.Should().BeOfType<PostgresBatchSource<int, long>>();
+    }
+
+    private static PostgresBatchSourceOptions<int, long> CreateSourceOptions() =>
         new()
         {
             Connection = PostgresConnectionOptions.FromConnectionFactory(
                 () => new NpgsqlConnection(ConnectionString)),
             CommandTimeoutSeconds = 30,
+            CommandText = "select @batch_size as batch_size, @resume_checkpoint as resume_checkpoint where 1 = 0",
+            ResumeCheckpointParameterType = NpgsqlDbType.Bigint,
+            RowMaterializer = (_, _) => ValueTask.FromResult(new PostgresBatchSourceRow<int, long>(0, 0L)),
         };
 
     private static PostgresCheckpointStoreOptions CreateCheckpointStoreOptions() =>
@@ -64,17 +82,4 @@ public sealed class BatchJobPostgresBuilderExtensionsTests
 
     private const string ConnectionString =
         "Host=localhost;Port=5432;Database=batchflow;Username=batchflow;Password=batchflow";
-
-    private sealed class FakePostgresSource(PostgresBatchSourceOptions options)
-        : PostgresBatchSource<int, long>(options)
-    {
-        protected override async IAsyncEnumerable<SourceBatch<int, long>> ReadCoreAsync(
-            NpgsqlConnection connection,
-            BatchSourceContext<long> context,
-            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
-        {
-            await Task.CompletedTask;
-            yield break;
-        }
-    }
 }

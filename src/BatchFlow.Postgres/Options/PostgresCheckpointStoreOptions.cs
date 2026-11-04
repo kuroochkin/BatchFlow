@@ -8,6 +8,12 @@ public sealed record PostgresCheckpointStoreOptions
     /// <summary>
     /// Определяет, как хранилище будет получать подключения к PostgreSQL.
     /// </summary>
+    /// <remarks>
+    /// Готовое соединение допускается только с владением <see cref="PostgresConnectionOwnership.External" />:
+    /// хранилище выполняет несколько отдельных операций и не может освобождать один экземпляр после каждой из них.
+    /// Для независимых подключений используйте строку подключения, <c>NpgsqlDataSource</c> или фабрику,
+    /// возвращающую новый экземпляр при каждом вызове.
+    /// </remarks>
     public required PostgresConnectionOptions Connection { get; init; }
 
     /// <summary>

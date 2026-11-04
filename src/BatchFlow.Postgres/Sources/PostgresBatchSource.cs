@@ -1,4 +1,8 @@
+using System.Data;
+using System.Data.Common;
+using System.Globalization;
 using System.Runtime.CompilerServices;
+using BatchFlow.Abstractions.Checkpoints;
 using BatchFlow.Abstractions.Execution;
 using BatchFlow.Abstractions.Sources;
 using BatchFlow.Postgres.Internal;
@@ -8,111 +12,269 @@ using Npgsql;
 namespace BatchFlow.Postgres.Sources;
 
 /// <summary>
-/// Представляет базовый класс для PostgreSQL-источников данных, читающих элементы пакетами.
-/// Класс берет на себя открытие подключения и оставляет конкретную SQL-логику наследнику.
+/// Представляет расширенный PostgreSQL-источник, который читает данные пакетами по SQL-запросу.
+/// Источник повторно выполняет keyset-based запрос, каждый раз передавая актуальный чекпоинт и размер батча.
 /// </summary>
-/// <typeparam name="TItem">Тип элементов, возвращаемых источником.</typeparam>
+/// <typeparam name="TItem">Тип элементов, которые возвращает источник.</typeparam>
 /// <typeparam name="TCheckpoint">Тип контрольной точки, используемой для возобновления чтения.</typeparam>
-public abstract class PostgresBatchSource<TItem, TCheckpoint> : IBatchSource<TItem, TCheckpoint>
+public class PostgresBatchSource<TItem, TCheckpoint> : PostgresBatchSourceBase<TItem, TCheckpoint>
 {
-    private readonly IPostgresConnectionFactory _connectionFactory;
+    private const string RowCountMetadataKey = "postgres.rowCount";
+    private const string ReadIterationMetadataKey = "postgres.readIteration";
+
+    private readonly PostgresBatchSourceOptions<TItem, TCheckpoint> _options;
 
     /// <summary>
-    /// Инициализирует PostgreSQL-источник с указанными параметрами подключения и выполнения SQL-команд.
+    /// Инициализирует PostgreSQL-источник пакетного чтения.
     /// </summary>
-    /// <param name="options">Параметры источника.</param>
-    protected PostgresBatchSource(PostgresBatchSourceOptions options)
+    /// <param name="options">Параметры SQL-запроса, материализации и возобновления чтения.</param>
+    /// <exception cref="ArgumentException">
+    /// Параметры запроса некорректны или <c>ReaderBehavior</c> содержит <see cref="CommandBehavior.CloseConnection" />.
+    /// Соединение должно оставаться открытым между порциями; его жизненным циклом управляет выбранная модель владения.
+    /// </exception>
+    public PostgresBatchSource(PostgresBatchSourceOptions<TItem, TCheckpoint> options)
+        : base(options)
     {
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(options.Connection);
-
-        if (options.CommandTimeoutSeconds is <= 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(options),
-                "Таймаут SQL-команды должен быть положительным числом секунд.");
-        }
-
-        Options = options;
-        _connectionFactory = PostgresConnectionFactoryResolver.Create(options.Connection);
+        _options = ValidateOptions(options);
     }
 
-    /// <summary>
-    /// Возвращает параметры PostgreSQL-источника.
-    /// </summary>
-    protected PostgresBatchSourceOptions Options { get; }
-
-    /// <summary>
-    /// Для PostgreSQL-источников по умолчанию предполагается поддержка возобновления чтения.
-    /// </summary>
-    public virtual bool SupportsResume => true;
+    internal PostgresBatchSource(
+        PostgresBatchSourceOptions<TItem, TCheckpoint> options,
+        IPostgresConnectionFactory connectionFactory)
+        : base(options, connectionFactory)
+    {
+        _options = ValidateOptions(options);
+    }
 
     /// <inheritdoc />
-    public async IAsyncEnumerable<SourceBatch<TItem, TCheckpoint>> ReadAsync(
+    protected override async IAsyncEnumerable<SourceBatch<TItem, TCheckpoint>> ReadCoreAsync(
+        NpgsqlConnection connection,
         BatchSourceContext<TCheckpoint> context,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(context);
+        var currentResumeFrom = context.ResumeFrom;
+        var readIteration = 0L;
+        var hasMoreData = true;
 
-        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-
-        await foreach (var batch in ReadCoreAsync(connection, context, cancellationToken).WithCancellation(cancellationToken))
+        while (hasMoreData)
         {
-            ValidateBatch(batch);
-            yield return batch;
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var batchReadResult = await ReadNextBatchAsync(
+                connection,
+                context,
+                currentResumeFrom,
+                readIteration,
+                cancellationToken);
+
+            if (batchReadResult is null)
+            {
+                hasMoreData = false;
+                continue;
+            }
+
+            yield return new SourceBatch<TItem, TCheckpoint>
+            {
+                Items = batchReadResult.Value.Items,
+                Checkpoint = batchReadResult.Value.LastRow.Checkpoint,
+                Metadata = CreateMetadata(batchReadResult.Value.Items.Count, readIteration),
+            };
+
+            currentResumeFrom = CreateSyntheticResumeCheckpoint(batchReadResult.Value.LastRow.Checkpoint);
+            readIteration++;
         }
     }
 
     /// <summary>
-    /// Выполняет фактическое чтение данных из PostgreSQL через уже открытое подключение.
-    /// Наследник должен возвращать только непустые пакеты.
+    /// Выполняет SQL-команду и возвращает reader результата.
+    /// Метод сделан виртуальным, чтобы источник можно было качественно unit-тестировать без живой PostgreSQL-базы.
     /// </summary>
-    /// <param name="connection">Уже открытое подключение к PostgreSQL.</param>
-    /// <param name="context">Контекст чтения source-данных.</param>
+    /// <param name="command">Подготовленная SQL-команда.</param>
     /// <param name="cancellationToken">Токен отмены.</param>
-    /// <returns>Последовательность пакетов данных.</returns>
-    protected abstract IAsyncEnumerable<SourceBatch<TItem, TCheckpoint>> ReadCoreAsync(
+    /// <returns>Reader результата SQL-команды.</returns>
+    protected virtual async ValueTask<DbDataReader> ExecuteReaderAsync(NpgsqlCommand command, CancellationToken cancellationToken)
+        => await command.ExecuteReaderAsync(_options.ReaderBehavior, cancellationToken);
+
+    private async ValueTask<BatchReadResult?> ReadNextBatchAsync(
         NpgsqlConnection connection,
         BatchSourceContext<TCheckpoint> context,
-        CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Создает SQL-команду с применением настроек таймаута из <see cref="Options" />.
-    /// Метод удобно использовать в наследниках при построении запросов.
-    /// </summary>
-    /// <param name="connection">Открытое подключение к PostgreSQL.</param>
-    /// <param name="commandText">Текст SQL-команды.</param>
-    /// <returns>Сконфигурированная SQL-команда.</returns>
-    protected NpgsqlCommand CreateCommand(NpgsqlConnection connection, string commandText)
+        StoredCheckpoint<TCheckpoint>? resumeFrom,
+        long readIteration,
+        CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(connection);
-        ArgumentException.ThrowIfNullOrWhiteSpace(commandText);
+        await using var command = CreateCommand(connection, _options.CommandText);
+        BindParameters(command.Parameters, context, resumeFrom, readIteration);
 
-        var command = connection.CreateCommand();
-        command.CommandText = commandText;
+        await using var reader = await ExecuteReaderAsync(command, cancellationToken);
 
-        if (Options.CommandTimeoutSeconds is { } timeoutSeconds)
+        var items = new List<TItem>(context.RequestedBatchSize);
+        PostgresBatchSourceRow<TItem, TCheckpoint> lastRow = default;
+
+        while (await reader.ReadAsync(cancellationToken))
         {
-            command.CommandTimeout = timeoutSeconds;
+            var row = await _options.RowMaterializer(reader, cancellationToken);
+            if (items.Count > 0)
+            {
+                EnsureCheckpointProgression(lastRow.Checkpoint, row.Checkpoint);
+            }
+            else if (resumeFrom is not null)
+            {
+                EnsureCheckpointProgression(resumeFrom.Value, row.Checkpoint);
+            }
+
+            items.Add(row.Item);
+            lastRow = row;
+
+            if (items.Count > context.RequestedBatchSize)
+            {
+                throw new InvalidOperationException(
+                    "PostgreSQL-источник получил из SQL-запроса больше строк, чем разрешает runtime batch size. " +
+                    "Запрос должен уважать параметр batch size и возвращать не более одного batch-а за вызов.");
+            }
         }
 
-        return command;
+        return items.Count == 0
+            ? null
+            : new BatchReadResult(items, lastRow);
     }
 
-    /// <summary>
-    /// Выполняет минимальную проверку возвращаемого пакета.
-    /// Если наследник возвращает пустой пакет, это трактуется как ошибка реализации.
-    /// </summary>
-    /// <param name="batch">Пакет, возвращенный PostgreSQL-источником.</param>
-    protected virtual void ValidateBatch(SourceBatch<TItem, TCheckpoint> batch)
+    private static PostgresBatchSourceOptions<TItem, TCheckpoint> ValidateOptions(
+        PostgresBatchSourceOptions<TItem, TCheckpoint> options)
     {
-        ArgumentNullException.ThrowIfNull(batch);
-        ArgumentNullException.ThrowIfNull(batch.Items);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.CommandText);
+        ArgumentNullException.ThrowIfNull(options.RowMaterializer);
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.BatchSizeParameterName);
+        ArgumentNullException.ThrowIfNull(options.ResumeCheckpointValueFactory);
+        ArgumentNullException.ThrowIfNull(options.CheckpointComparer);
 
-        if (batch.Items.Count == 0)
+        if (options.ResumeCheckpointParameterName is not null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(options.ResumeCheckpointParameterName);
+
+            if (string.Equals(
+                    options.BatchSizeParameterName.TrimStart('@', ':'),
+                    options.ResumeCheckpointParameterName.TrimStart('@', ':'),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("Имена параметров batch size и checkpoint должны различаться.", nameof(options));
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(options.BatchSizeParameterName.TrimStart('@', ':')) ||
+            options.ResumeCheckpointParameterName is not null &&
+            string.IsNullOrWhiteSpace(options.ResumeCheckpointParameterName.TrimStart('@', ':')))
+        {
+            throw new ArgumentException("Имя SQL-параметра должно содержать имя, а не только префикс.", nameof(options));
+        }
+
+        const CommandBehavior allowedReaderBehavior = CommandBehavior.SequentialAccess | CommandBehavior.SingleResult;
+
+        if ((options.ReaderBehavior & ~allowedReaderBehavior) != 0)
+        {
+            throw new ArgumentException(
+                "ReaderBehavior поддерживает только Default, SequentialAccess и SingleResult. " +
+                "CloseConnection и другие флаги несовместимы с контрактом пакетного чтения.",
+                nameof(options));
+        }
+
+        return options;
+    }
+
+    private void BindParameters(NpgsqlParameterCollection parameters, BatchSourceContext<TCheckpoint> sourceContext,
+        StoredCheckpoint<TCheckpoint>? resumeFrom, long readIteration)
+    {
+        parameters.Clear();
+        parameters.AddWithValue(_options.BatchSizeParameterName, _options.BatchSizeParameterType, sourceContext.RequestedBatchSize);
+
+        if (_options.ResumeCheckpointParameterName is not null)
+        {
+            BindResumeCheckpointParameter(parameters, resumeFrom);
+        }
+
+        _options.ParameterBinder?.Invoke(
+            parameters,
+            new PostgresBatchSourceParameterContext<TCheckpoint>
+            {
+                SourceContext = sourceContext,
+                ResumeFrom = resumeFrom,
+                BatchSize = sourceContext.RequestedBatchSize,
+                ReadIteration = readIteration,
+            });
+    }
+
+    private void BindResumeCheckpointParameter(NpgsqlParameterCollection parameters, StoredCheckpoint<TCheckpoint>? resumeFrom)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+
+        var parameterValue = _options.ResumeCheckpointValueFactory(resumeFrom);
+
+        if (parameterValue is null && !_options.BindResumeCheckpointWhenMissing)
+        {
+            return;
+        }
+
+        if (parameterValue is null || parameterValue is DBNull)
+        {
+            if (_options.ResumeCheckpointParameterType is null)
+            {
+                throw new InvalidOperationException(
+                    "Невозможно автоматически передать NULL-checkpoint в SQL-параметр без явного ResumeCheckpointParameterType. " +
+                    "Либо укажите тип параметра, либо отключите стандартную подстановку checkpoint и используйте ParameterBinder.");
+            }
+
+            parameters.Add(
+                new NpgsqlParameter(_options.ResumeCheckpointParameterName!, _options.ResumeCheckpointParameterType.Value)
+                {
+                    Value = DBNull.Value,
+                });
+
+            return;
+        }
+
+        if (_options.ResumeCheckpointParameterType is { } checkpointParameterType)
+        {
+            parameters.AddWithValue(_options.ResumeCheckpointParameterName!, checkpointParameterType, parameterValue);
+            return;
+        }
+
+        parameters.AddWithValue(_options.ResumeCheckpointParameterName!, parameterValue);
+    }
+
+    private void EnsureCheckpointProgression(TCheckpoint previousCheckpoint, TCheckpoint nextCheckpoint)
+    {
+        if (!_options.EnforceCheckpointProgression)
+        {
+            return;
+        }
+
+        var isValid = _options.CheckpointProgressionValidator is { } validator
+            ? validator(previousCheckpoint, nextCheckpoint)
+            : !_options.CheckpointComparer.Equals(previousCheckpoint, nextCheckpoint);
+
+        if (!isValid)
         {
             throw new InvalidOperationException(
-                "PostgreSQL-источник вернул пустой пакет. Источник должен завершить последовательность, а не отдавать пустые наборы данных.");
+                "SQL-запрос PostgreSQL-источника не продвинул checkpoint в допустимом порядке. " +
+                "Проверьте keyset-условие, сортировку и пользовательскую проверку порядка.");
         }
     }
+
+    private static IReadOnlyDictionary<string, string> CreateMetadata(int rowCount, long readIteration) =>
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [RowCountMetadataKey] = rowCount.ToString(CultureInfo.InvariantCulture),
+            [ReadIterationMetadataKey] = readIteration.ToString(CultureInfo.InvariantCulture),
+        };
+
+    private static StoredCheckpoint<TCheckpoint> CreateSyntheticResumeCheckpoint(TCheckpoint checkpoint) =>
+        new()
+        {
+            Value = checkpoint,
+            SavedAt = DateTimeOffset.UtcNow,
+        };
+
+    private readonly record struct BatchReadResult(
+        IReadOnlyList<TItem> Items,
+        PostgresBatchSourceRow<TItem, TCheckpoint> LastRow);
 }

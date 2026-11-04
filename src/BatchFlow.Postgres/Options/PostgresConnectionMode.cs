@@ -19,4 +19,9 @@ public enum PostgresConnectionMode
     /// Подключение будет предоставляться пользовательской фабрикой <c>NpgsqlConnection</c>.
     /// </summary>
     ConnectionFactory = 2,
+
+    /// <summary>
+    /// Адаптер будет работать с уже созданным экземпляром <c>NpgsqlConnection</c>.
+    /// </summary>
+    ExistingConnection = 3,
 }

@@ -90,6 +90,12 @@ public sealed record PostgresBatchSourceOptions<TItem, TCheckpoint> : PostgresBa
     /// Поведение чтения результата из <see cref="DbDataReader" />.
     /// По умолчанию используется <see cref="CommandBehavior.SequentialAccess" /> и <see cref="CommandBehavior.SingleResult" />.
     /// </summary>
+    /// <remarks>
+    /// Флаг <see cref="CommandBehavior.CloseConnection" /> запрещен, в том числе в комбинации с другими флагами.
+    /// Reader освобождается после каждой порции, а соединение используется до окончания перечисления.
+    /// Несовместимая настройка отклоняется при создании источника независимо от модели владения соединением.
+    /// Поддерживаются только Default, SequentialAccess, SingleResult и комбинация двух последних флагов.
+    /// </remarks>
     public CommandBehavior ReaderBehavior { get; init; } =
         CommandBehavior.SequentialAccess | CommandBehavior.SingleResult;
 
@@ -99,8 +105,20 @@ public sealed record PostgresBatchSourceOptions<TItem, TCheckpoint> : PostgresBa
     public IEqualityComparer<TCheckpoint> CheckpointComparer { get; init; } = EqualityComparer<TCheckpoint>.Default;
 
     /// <summary>
-    /// Определяет, нужно ли останавливать источник, если очередной batch не продвигает checkpoint вперед.
-    /// Защита помогает быстро обнаружить ошибочный SQL, который может зациклить чтение.
+    /// Проверяет порядок соседних checkpoint: первый аргумент обозначает предыдущую позицию, второй - новую.
+    /// Возвращает <see langword="true" />, если переход допустим, например <c>next &gt; previous</c>.
+    /// </summary>
+    /// <remarks>
+    /// Проверяется каждая строка, включая переход от ResumeFrom к первой строке.
+    /// Можно задать убывающий или составной порядок. Если делегат не задан, проверяется только неравенство позиций.
+    /// При <see cref="EnforceCheckpointProgression" /> = <see langword="false" /> проверки отключены.
+    /// Проверка порядка не обеспечивает консистентность изменяющейся таблицы и не устраняет поздние коммиты.
+    /// </remarks>
+    public Func<TCheckpoint, TCheckpoint, bool>? CheckpointProgressionValidator { get; init; }
+
+    /// <summary>
+    /// Включает проверку перехода к каждой следующей строке, включая границу возобновления.
+    /// По умолчанию соседние checkpoint должны различаться; для строгого порядка задайте CheckpointProgressionValidator.
     /// </summary>
     public bool EnforceCheckpointProgression { get; init; } = true;
 }
