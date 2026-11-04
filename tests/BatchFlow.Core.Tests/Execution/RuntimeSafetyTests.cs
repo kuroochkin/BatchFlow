@@ -20,6 +20,64 @@ public sealed class RuntimeSafetyTests
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Source_factory_failure_should_return_failed_summary(bool returnsNull)
+    {
+        var expected = new InvalidOperationException("source factory failed");
+        var source = new DelegateBatchSource<int, int>((_, _) => returnsNull ? null! : throw expected);
+        var observer = new RecordingExecutionObserver<int>();
+        var summary = await BatchJob.Named("source-factory-failure").From(source).WithObserver(observer)
+            .RunBatchAsync((_, _, _) => ValueTask.CompletedTask).AsTask().WaitAsync(Timeout);
+
+        summary.Status.Should().Be(JobCompletionStatus.Failed);
+        if (returnsNull)
+        {
+            summary.Exception.Should().BeOfType<InvalidOperationException>()
+                .Which.Message.Should().Contain("пустую последовательность");
+        }
+        else
+        {
+            summary.Exception.Should().BeSameAs(expected);
+        }
+        observer.Events.OfType<JobStartedEvent<int>>().Should().ContainSingle();
+        observer.Events.OfType<JobCompletedEvent<int>>().Should().ContainSingle();
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task Internal_shutdown_should_cancel_token_passed_to_source_method(int parallelism)
+    {
+        using var externalCancellation = new CancellationTokenSource();
+        var source = new CapturedReadTokenSource();
+        var expected = new InvalidOperationException("handler failed while source was reading");
+        var run = BatchJob.Named("source-method-token").From(source).WithDegreeOfParallelism(parallelism)
+            .RunBatchAsync(async (_, _, _) =>
+            {
+                await source.ReadStarted.Task.WaitAsync(Timeout);
+                throw expected;
+            }, externalCancellation.Token).AsTask();
+
+        try
+        {
+            await source.EnumerationCancelled.Task.WaitAsync(Timeout);
+            source.ReadToken.IsCancellationRequested.Should().BeTrue();
+            externalCancellation.IsCancellationRequested.Should().BeFalse();
+        }
+        finally
+        {
+            // Освобождаем зависший source и на старой реализации, чтобы регрессия не оставляла фоновых задач.
+            externalCancellation.Cancel();
+            await run.WaitAsync(Timeout);
+        }
+
+        var summary = await run.WaitAsync(Timeout);
+        summary.Status.Should().Be(JobCompletionStatus.Failed);
+        summary.Exception.Should().BeSameAs(expected);
+    }
+
     [Fact]
     public async Task Buffer_should_not_read_beyond_unconfirmed_window_until_commit()
     {
@@ -51,7 +109,7 @@ public sealed class RuntimeSafetyTests
             RequestedBatchSize = 1,
         };
 
-        await using var buffer = BufferedBatchChannel<int, int>.Start(job, source.ReadAsync(context, default), default);
+        await using var buffer = BufferedBatchChannel<int, int>.Start(job, token => source.ReadAsync(context, token), default);
         for (var i = 0; i < 3; i++)
         {
             await buffer.Reader.ReadAsync().AsTask().WaitAsync(Timeout);
@@ -446,6 +504,30 @@ public sealed class RuntimeSafetyTests
             token.ThrowIfCancellationRequested();
             yield return new SourceBatch<int, int> { Items = [i], Checkpoint = i };
             await Task.Yield();
+        }
+    }
+
+    private sealed class CapturedReadTokenSource : IBatchSource<int, int>
+    {
+        public TaskCompletionSource ReadStarted { get; } = Signal();
+        public TaskCompletionSource EnumerationCancelled { get; } = Signal();
+        public CancellationToken ReadToken { get; private set; }
+
+        public IAsyncEnumerable<SourceBatch<int, int>> ReadAsync(BatchSourceContext<int> context, CancellationToken cancellationToken)
+        {
+            ReadToken = cancellationToken;
+            return ReadCoreAsync(cancellationToken);
+        }
+
+        private async IAsyncEnumerable<SourceBatch<int, int>> ReadCoreAsync(
+            CancellationToken readToken,
+            [EnumeratorCancellation] CancellationToken enumerationToken = default)
+        {
+            using var registration = enumerationToken.Register(() => EnumerationCancelled.TrySetResult());
+            yield return new SourceBatch<int, int> { Items = [1], Checkpoint = 1 };
+            enumerationToken.ThrowIfCancellationRequested();
+            ReadStarted.TrySetResult();
+            await Task.Delay(System.Threading.Timeout.InfiniteTimeSpan, readToken);
         }
     }
 }

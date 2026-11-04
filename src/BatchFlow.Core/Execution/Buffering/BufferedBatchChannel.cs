@@ -36,14 +36,15 @@ internal sealed class BufferedBatchChannel<TItem, TCheckpoint> : IAsyncDisposabl
 
     /// <summary>
     /// Запускает producer, который читает batch-и из источника и публикует их в bounded channel.
+    /// Фабрика последовательности получает рабочий токен producer, отменяемый и при внутренней остановке.
     /// </summary>
     public static BufferedBatchChannel<TItem, TCheckpoint> Start(
         BatchJobDefinition<TItem, TCheckpoint> job,
-        IAsyncEnumerable<SourceBatch<TItem, TCheckpoint>> batches,
+        Func<CancellationToken, IAsyncEnumerable<SourceBatch<TItem, TCheckpoint>>> readBatches,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(job);
-        ArgumentNullException.ThrowIfNull(batches);
+        ArgumentNullException.ThrowIfNull(readBatches);
 
         var producerCancellationSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var channel = Channel.CreateBounded<BufferedSourceBatch<TItem, TCheckpoint>>(
@@ -61,7 +62,7 @@ internal sealed class BufferedBatchChannel<TItem, TCheckpoint> : IAsyncDisposabl
 
         var windowSize = (int)Math.Min(int.MaxValue, (long)job.PrefetchCapacity + workerCount);
         var inFlightSlots = new SemaphoreSlim(windowSize, windowSize);
-        var producerTask = ProduceAsync(batches, channel.Writer, inFlightSlots, producerCancellationSource.Token);
+        var producerTask = ProduceAsync(readBatches, channel.Writer, inFlightSlots, producerCancellationSource.Token);
 
         return new BufferedBatchChannel<TItem, TCheckpoint>(
             channel.Reader,
@@ -126,13 +127,18 @@ internal sealed class BufferedBatchChannel<TItem, TCheckpoint> : IAsyncDisposabl
     public ValueTask DisposeAsync() => CompleteAsync(suppressProducerException: true);
 
     private static async Task ProduceAsync(
-        IAsyncEnumerable<SourceBatch<TItem, TCheckpoint>> batches,
+        Func<CancellationToken, IAsyncEnumerable<SourceBatch<TItem, TCheckpoint>>> readBatches,
         ChannelWriter<BufferedSourceBatch<TItem, TCheckpoint>> writer,
         SemaphoreSlim inFlightSlots,
         CancellationToken cancellationToken)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var batches = readBatches(cancellationToken)
+                ?? throw new InvalidOperationException("Источник данных вернул пустую последовательность пакетов.");
+
             await using var enumerator = batches.GetAsyncEnumerator(cancellationToken);
             var sequence = 0L;
 

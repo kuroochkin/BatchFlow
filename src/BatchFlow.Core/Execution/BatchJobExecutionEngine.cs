@@ -80,12 +80,9 @@ public sealed class BatchJobExecutionEngine : IBatchJobExecutionEngine
                 RequestedBatchSize = job.BatchSize,
             };
 
-            var batches = job.Source.ReadAsync(sourceContext, cancellationToken)
-                ?? throw new InvalidOperationException("Источник данных вернул пустую последовательность пакетов.");
-
             await using var bufferedBatches = BufferedBatchChannel<TItem, TCheckpoint>.Start(
                 job,
-                batches,
+                token => job.Source.ReadAsync(sourceContext, token),
                 cancellationToken);
 
             return await ExecuteBufferedPipelineAsync(
