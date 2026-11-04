@@ -7,6 +7,16 @@ namespace BatchFlow.Postgres.Tests.Options;
 
 public sealed class PostgresConnectionOptionsTests
 {
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(2)]
+    public void FromConnection_should_reject_unknown_ownership(int ownership)
+    {
+        using var connection = new NpgsqlConnection();
+        var action = () => PostgresConnectionOptions.FromConnection(connection, (PostgresConnectionOwnership)ownership);
+        action.Should().Throw<ArgumentOutOfRangeException>().Which.ParamName.Should().Be("ownership");
+    }
+
     [Fact]
     public void FromConnectionString_should_create_connection_string_mode()
     {
@@ -39,6 +49,23 @@ public sealed class PostgresConnectionOptionsTests
 
         options.Mode.Should().Be(PostgresConnectionMode.ConnectionFactory);
         options.ConnectionFactory.Should().NotBeNull();
+        options.ConnectionString.Should().BeNull();
+        options.DataSource.Should().BeNull();
+    }
+
+    [Fact]
+    public void FromConnection_should_create_existing_connection_mode()
+    {
+        using var connection = new NpgsqlConnection(ConnectionString);
+
+        var options = PostgresConnectionOptions.FromConnection(
+            connection,
+            PostgresConnectionOwnership.External);
+
+        options.Mode.Should().Be(PostgresConnectionMode.ExistingConnection);
+        options.Connection.Should().BeSameAs(connection);
+        options.ConnectionOwnership.Should().Be(PostgresConnectionOwnership.External);
+        options.ConnectionFactory.Should().BeNull();
         options.ConnectionString.Should().BeNull();
         options.DataSource.Should().BeNull();
     }
