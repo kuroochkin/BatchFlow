@@ -31,7 +31,10 @@ public sealed class EntityFrameworkCoreContextOptions<TContext> where TContext :
     /// Использует фабрику EF Core, в том числе фабрику с пулом контекстов.
     /// Каждый созданный контекст освобождается источником; сама фабрика остается во владении приложения.
     /// </summary>
-    /// <param name="contextFactory">Фабрика, возвращающая отдельный контекст для каждого перечисления.</param>
+    /// <param name="contextFactory">
+    /// Фабрика отдельного контекста на каждое обращение. EfCoreBatchSource обращается к ней на каждую порцию,
+    /// а EntityFrameworkCoreBatchSourceBase - на каждое перечисление.
+    /// </param>
     /// <returns>Настройки получения контекста через фабрику EF Core.</returns>
     public static EntityFrameworkCoreContextOptions<TContext> FromDbContextFactory(
         IDbContextFactory<TContext> contextFactory)
