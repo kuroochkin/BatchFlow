@@ -1,6 +1,9 @@
 # Build artifacts
 bin/
 obj/
+artifacts/
+*.nupkg
+*.snupkg
 
 # IDE files
 .idea/

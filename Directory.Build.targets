@@ -1,0 +1,25 @@
+<Project>
+  <PropertyGroup Condition="'$(IsBatchFlowPackage)' == 'true'">
+    <IsPackable>true</IsPackable>
+    <PackageId>$(MSBuildProjectName.Replace('BatchFlow', 'BatchFlowKit'))</PackageId>
+    <Authors>BatchFlowKit contributors</Authors>
+    <Copyright>Copyright (c) 2026 BatchFlowKit contributors</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/kuroochkin/BatchFlow</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/kuroochkin/BatchFlow.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageTags>dotnet;batch;pipeline;checkpoint;resume;retry;parallelism</PackageTags>
+    <PackageReleaseNotes>Первый предварительный выпуск. Возможности и ограничения: https://github.com/kuroochkin/BatchFlow/blob/master/CHANGELOG.md</PackageReleaseNotes>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(IsBatchFlowPackage)' == 'true'">
+    <None Include="$(MSBuildThisFileDirectory)eng/nuget/README.md" Pack="true" PackagePath="/" />
+    <None Include="$(MSBuildThisFileDirectory)LICENSE" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

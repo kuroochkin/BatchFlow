@@ -2,4 +2,8 @@
   <ItemGroup>
     <ProjectReference Include="..\BatchFlow.Abstractions\BatchFlow.Abstractions.csproj" />
   </ItemGroup>
+  <PropertyGroup>
+    <IsBatchFlowPackage>true</IsBatchFlowPackage>
+    <Description>Движок BatchFlowKit: ограниченная очередь, параллелизм, политики ошибок и координация контрольных точек.</Description>
+  </PropertyGroup>
 </Project>

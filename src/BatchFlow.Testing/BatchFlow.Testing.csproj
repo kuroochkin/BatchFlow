@@ -4,4 +4,8 @@
     <ProjectReference Include="..\BatchFlow.Abstractions\BatchFlow.Abstractions.csproj" />
     <ProjectReference Include="..\BatchFlow\BatchFlow.csproj" />
   </ItemGroup>
+  <PropertyGroup>
+    <IsBatchFlowPackage>true</IsBatchFlowPackage>
+    <Description>Тестовые источники, обработчики, наблюдатели и хранилища для проверки задач BatchFlowKit.</Description>
+  </PropertyGroup>
 </Project>

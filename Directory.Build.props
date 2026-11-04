@@ -5,5 +5,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Version Condition="'$(Version)' == ''">0.1.0-preview.1</Version>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
 </Project>

@@ -4,4 +4,8 @@
     <ProjectReference Include="..\BatchFlow.Extensions.DependencyInjection\BatchFlow.Extensions.DependencyInjection.csproj" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.15" />
   </ItemGroup>
+  <PropertyGroup>
+    <IsBatchFlowPackage>true</IsBatchFlowPackage>
+    <Description>Регистрация PostgreSQL-пулов, источников и checkpoint store BatchFlowKit в Microsoft DI.</Description>
+  </PropertyGroup>
 </Project>

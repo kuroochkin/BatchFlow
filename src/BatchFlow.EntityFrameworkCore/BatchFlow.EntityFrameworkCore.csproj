@@ -8,4 +8,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.15" />
   </ItemGroup>
+  <PropertyGroup>
+    <IsBatchFlowPackage>true</IsBatchFlowPackage>
+    <Description>Адаптер EF Core для BatchFlowKit: типизированное LINQ/keyset-чтение с отдельным DbContext на порцию.</Description>
+  </PropertyGroup>
 </Project>

@@ -3,4 +3,8 @@
     <ProjectReference Include="..\BatchFlow.EntityFrameworkCore\BatchFlow.EntityFrameworkCore.csproj" />
     <ProjectReference Include="..\BatchFlow.Extensions.DependencyInjection\BatchFlow.Extensions.DependencyInjection.csproj" />
   </ItemGroup>
+  <PropertyGroup>
+    <IsBatchFlowPackage>true</IsBatchFlowPackage>
+    <Description>Регистрация источников BatchFlowKit в Microsoft DI поверх IDbContextFactory приложения.</Description>
+  </PropertyGroup>
 </Project>
