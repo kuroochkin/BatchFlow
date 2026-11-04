@@ -152,6 +152,44 @@ public sealed class BatchFlowProgressLoggingTests
         logger.Entries.Should().OnlyContain(entry => entry.Message.Contains($"RunId={summary.Job.RunId}"));
     }
 
+    [Fact]
+    public async Task Logging_should_preserve_first_available_issue_when_batch_reason_is_missing()
+    {
+        var logger = new RecordingLogger(LogLevel.Trace);
+        await BatchJob.Named("issues-without-reason").From(new LoggingResumableSource([1, 2])).WithProgressLogging(logger)
+            .RunBatchAsync((items, _, _) => ValueTask.FromResult(BatchProcessingResult.Completed(items.Count, 0, items.Count,
+            [
+                new BatchProcessingIssue(),
+                new BatchProcessingIssue { ItemIndex = 1, Code = "bad-email", Message = "invalid email marker" },
+            ])));
+
+        var skip = logger.Entries.Single(entry => entry.EventId == BatchFlowLoggingEventIds.ProcessingSkipped);
+        skip.Message.Should().Contain("Code=bad-email").And.Contain("Reason=invalid email marker").And.Contain("IssueCount=2");
+    }
+
+    [Fact]
+    public async Task Logging_should_include_code_when_explicit_item_skip_has_no_message()
+    {
+        var logger = new RecordingLogger(LogLevel.Trace);
+        await BatchJob.Named("skip-code-only").From(new LoggingResumableSource([1])).WithProgressLogging(logger)
+            .RunEachAsync((_, _, _) => ValueTask.FromResult(ProcessingResult.Skipped(code: "invalid-amount")));
+
+        logger.Entries.Single(entry => entry.EventId == BatchFlowLoggingEventIds.ProcessingSkipped)
+            .Message.Should().Contain("Code=invalid-amount");
+    }
+
+    [Fact]
+    public async Task Logging_should_prefer_explicit_batch_reason_over_issue_message()
+    {
+        var logger = new RecordingLogger(LogLevel.Trace);
+        await BatchJob.Named("explicit-batch-reason").From(new LoggingResumableSource([1])).WithProgressLogging(logger)
+            .RunBatchAsync((items, _, _) => ValueTask.FromResult(BatchProcessingResult.Completed(items.Count, 0, items.Count,
+                [new BatchProcessingIssue { Code = "rejected", Message = "issue-detail" }], "batch-reason")));
+
+        logger.Entries.Single(entry => entry.EventId == BatchFlowLoggingEventIds.ProcessingSkipped)
+            .Message.Should().Contain("Reason=batch-reason").And.Contain("Code=rejected");
+    }
+
     private sealed class LoggingResumableSource(IReadOnlyList<int> items) : IBatchSource<int, int>
     {
         private readonly IReadOnlyList<int> _items = items;

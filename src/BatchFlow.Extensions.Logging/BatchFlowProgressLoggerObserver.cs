@@ -321,10 +321,15 @@ public sealed class BatchFlowProgressLoggerObserver<TCheckpoint> : IExecutionObs
             return;
         }
 
+        var firstIssue = @event.Issues.FirstOrDefault(issue =>
+            !string.IsNullOrWhiteSpace(issue.Code) || !string.IsNullOrWhiteSpace(issue.Message));
+
+        var reason = !string.IsNullOrWhiteSpace(@event.Reason) ? @event.Reason : firstIssue?.Message;
+
         _logger.Log(level, BatchFlowLoggingEventIds.ProcessingSkipped, @event.Exception,
-            "Пропуск обработки job {JobName}. RunId={RunId}, BatchSequence={BatchSequence}, Scope={Scope}, ItemIndex={ItemIndex}, Attempt={Attempt}, SkippedCount={SkippedCount}, Reason={Reason}",
+            "Пропуск обработки job {JobName}. RunId={RunId}, BatchSequence={BatchSequence}, Scope={Scope}, ItemIndex={ItemIndex}, Attempt={Attempt}, SkippedCount={SkippedCount}, IssueCount={IssueCount}, Code={Code}, Reason={Reason}",
             @event.Job.JobName, @event.Job.RunId, @event.BatchSequence, @event.Scope, @event.ItemIndex,
-            @event.Attempt, @event.SkippedCount, @event.Reason);
+            @event.Attempt, @event.SkippedCount, @event.Issues.Count, firstIssue?.Code, reason);
     }
 
     private bool ShouldLog(LogLevel level) => level != LogLevel.None && _logger.IsEnabled(level);
