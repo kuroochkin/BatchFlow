@@ -15,7 +15,9 @@
 | `BatchFlow.EntityFrameworkCore` | LINQ/keyset-source и жизненный цикл `DbContext` | `Abstractions`, `Core`, `BatchFlow` |
 | `BatchFlow.Extensions.Logging` | Runtime-события -> `ILogger` | `BatchFlow` |
 | `BatchFlow.Testing` | Doubles и фиксация вызовов | `Abstractions`, `Core`, `BatchFlow` |
-| `BatchFlow.Extensions.DependencyInjection` | Пока каркас | `Core` |
+| `BatchFlow.Extensions.DependencyInjection` | Runtime и in-memory store в DI, внутренние правила регистраций | `Core`, `BatchFlow` |
+| `BatchFlow.Postgres.DependencyInjection` | Scoped/keyed SQL-source/store, singleton pool, snapshot конфигурации | `Postgres`, `Extensions.DependencyInjection` |
+| `BatchFlow.EntityFrameworkCore.DependencyInjection` | Scoped/keyed EF-source поверх фабрик приложения | `EntityFrameworkCore`, `Extensions.DependencyInjection` |
 | `BatchFlow.Extensions.Diagnostics` | Пока каркас | `Core` |
 
 `Npgsql` находится в PostgreSQL-проекте, logging abstractions - в logging-проекте. Core не должен ссылаться на них. `ConsoleTest` - исполняемый пример, а не обязательный пакет пользователя.
@@ -50,6 +52,7 @@
 9. `BatchFlow.Postgres/Options`, `Sources`, `Internal`, `Checkpoints`, `Extensions`: адаптер.
 10. Logging-адаптер и тесты рядом с изученным поведением.
 11. `EfCoreBatchSourceOptions`, `EfCoreQueryShapeValidator`, `EfCoreBatchSource`, затем fluent-перегрузки и SQLite-тесты: готовый EF-адаптер. Старый базовый класс изучается отдельно.
+12. `DbContextFactoryBatchSourceExtensions`, `BatchJobDbContextBuilderExtensions`, общий `BatchFlowServiceCollectionExtensions`, затем DI-регистрации адаптеров и runners в `samples`: подключение к приложению без скрытого контейнера.
 
 ## Существующий код-стайл
 
