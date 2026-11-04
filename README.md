@@ -6,7 +6,7 @@ BatchFlow помогает запускать пакетную обработк�
 
 ## Текущее состояние
 
-Репозиторий собирается для `net9.0`. Реализованы fluent API, два режима обработки, фиксированный retry, stop/skip, приостановка через пользовательскую политику, контрольные точки, события, `ILogger` и PostgreSQL-адаптер. [EF Core source](docs/11-ef-core-source.md) читает по LINQ/keyset, поддерживает типизированные options, стабильный составной порядок и отдельный контекст на порцию. `BatchFlow.Extensions.DependencyInjection` и `BatchFlow.Extensions.Diagnostics` пока содержат только каркас проектов.
+Репозиторий собирается для `net9.0`. Реализованы fluent API, два режима обработки, фиксированный retry, stop/skip, приостановка через пользовательскую политику, контрольные точки, события, `ILogger` и PostgreSQL-адаптер. [EF Core source](docs/11-ef-core-source.md) читает по LINQ/keyset, поддерживает типизированные options, стабильный составной порядок и отдельный контекст на порцию. [Необязательные DI-пакеты](docs/12-dependency-injection.md) регистрируют runtime, PostgreSQL и EF Core с явными правилами владения. `BatchFlow.Extensions.Diagnostics` пока содержит только каркас проекта.
 
 Это развивающаяся библиотека. Известные ограничения и рекомендации перед эксплуатацией описаны в [разборе проекта](docs/08-review.md). Наличие проекта с именем пакета не подтверждает его публикацию в NuGet; инструкции ниже используют исходники из этого репозитория.
 
@@ -21,7 +21,9 @@ dotnet add samples/FirstJob/FirstJob.csproj reference src/BatchFlow/BatchFlow.cs
 
 Для собственного приложения укажите путь к `src/BatchFlow/BatchFlow.csproj` в `ProjectReference`. Фасад подтянет `Core` и `Abstractions` транзитивно. Для PostgreSQL дополнительно подключите `BatchFlow.Postgres`, для логов - `BatchFlow.Extensions.Logging` и провайдер логирования приложения.
 
-Для чтения через `DbContext` подключите `BatchFlow.EntityFrameworkCore`. EF-провайдер и подключение настраиваются в приложении; этот пакет не зависит от `BatchFlow.Postgres`. В `.FromEntityFrameworkCore(options)` задаются базовый запрос, полный порядок и checkpoint без наследования source: [руководство](docs/11-ef-core-source.md). Исполняемый пример без внешней БД: `dotnet run --project samples/BatchFlow.EntityFrameworkCore.Sample`.
+Для чтения через `DbContext` подключите `BatchFlow.EntityFrameworkCore`. EF-провайдер и подключение настраиваются в приложении; этот пакет не зависит от `BatchFlow.Postgres`. `.FromDbContext(...)` принимает source, типизированные options, фабрику или configure-delegate: [руководство](docs/12-dependency-injection.md). Прежнее имя `.FromEntityFrameworkCore(...)` сохраняется. Исполняемый пример без внешней БД: `dotnet run --project samples/BatchFlow.EntityFrameworkCore.Sample`.
+
+Для ASP.NET Core и worker services доступны `BatchFlow.EntityFrameworkCore.DependencyInjection` и `BatchFlow.Postgres.DependencyInjection`: отдельные пакеты не смешивают ORM и SQL-зависимости. [Два полных примера](samples/README.md) показывают DI, checkpoint, retry, `RunEachAsync`, `RunBatchAsync` и повторный запуск без дублей. SQL-пример запускается только на тестовой БД.
 
 ## Первый запуск
 
@@ -118,6 +120,7 @@ internal sealed class OrderSource(IReadOnlyList<Order> orders) : IBatchSource<Or
 | [Ошибки и отмена](docs/03-errors-and-cancellation.md) | Retry, stop, skip, suspend, `CancellationToken` |
 | [PostgreSQL](docs/04-postgres.md) | Полный пример SQL, материализация, составной ключ, подключения |
 | [EF Core](docs/11-ef-core-source.md) | LINQ/keyset, options, короткий DbContext и ограничения восстановления |
+| [Dependency Injection](docs/12-dependency-injection.md) | Регистрация адаптеров, FromDbContext, scoped lifetime и владение ресурсами |
 | [Логи и события](docs/05-observability.md) | `WithProgressLogging`, observer, уровни и ограничения |
 | [Расширение и тесты](docs/06-extending-and-testing.md) | Собственный source, processor, store и тестирование |
 | [Архитектура и стиль](docs/07-architecture-and-style.md) | Порядок изучения, зависимости, соглашения кода |

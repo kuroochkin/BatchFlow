@@ -15,6 +15,7 @@
 9. [Надежность runtime](09-runtime-hardening.md): исправленные гарантии, совместимость и регрессионные проверки.
 10. [Контексты EF Core](10-entity-framework-core.md): фабрики, владение ресурсами и базовый класс собственных источников.
 11. [Готовый EF Core source](11-ef-core-source.md): типизированные options, LINQ/keyset, составной порядок, короткий контекст и полный пример.
+12. [Dependency Injection](12-dependency-injection.md): общий runtime, PostgreSQL/EF-регистрации, FromDbContext, владение ресурсами и готовые примеры.
 
 Полные программы явно обозначены в тексте. Остальные C#-фрагменты дополняют пример из README или PostgreSQL-руководства; их переменные и типы указаны рядом. Имена методов и типов сохранены на английском, объяснения написаны по-русски.
 
@@ -32,7 +33,8 @@
 | In-memory checkpoint | В фасаде; тестовая обертка в `BatchFlow.Testing` |
 | PostgreSQL source и checkpoint store | Реализованы; есть отдельный интеграционный набор с настоящей БД |
 | Runtime-события и `ILogger` | Включают retry/skip, причины и RunId |
-| DI и Diagnostics | Только проекты, готового API нет |
+| DI | Общая регистрация runtime, отдельные PostgreSQL/EF-пакеты, scoped/keyed source и store |
+| Diagnostics | Только проект, готового API нет |
 | EF Core / `DbContext` | LINQ/keyset-source, контекст на порцию, составной порядок; проверен на SQLite |
 | Scheduler, распределенный запуск, exactly-once | Не реализованы |
 
